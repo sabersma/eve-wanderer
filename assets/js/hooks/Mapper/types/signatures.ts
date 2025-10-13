@@ -69,6 +69,16 @@ export enum SignatureKindENG {
   Starbase = 'Starbase',
 }
 
+export enum SignatureKindZhCN {
+  CosmicSignature = '空间信号',
+  CosmicAnomaly = '空间异常',
+  Structure = 'Structure',
+  Ship = 'Ship',
+  Deployable = 'Deployable',
+  Drone = 'Drone',
+  Starbase = 'Starbase',
+}
+
 export enum SignatureKindRU {
   CosmicSignature = 'Скрытый сигнал',
   CosmicAnomaly = 'Космическая аномалия',
@@ -107,6 +117,16 @@ export enum SignatureGroupENG {
   DataSite = 'Data Site',
   OreSite = 'Ore Site',
   CombatSite = 'Combat Site',
+}
+
+export enum SignatureGroupZhCN {
+  CosmicSignature = '空间信号',
+  Wormhole = '虫洞',
+  GasSite = '气云地点',
+  RelicSite = '遗迹地点',
+  DataSite = '数据地点',
+  OreSite = '矿石地点',
+  CombatSite = '战斗地点',
 }
 
 export enum SignatureGroupRU {

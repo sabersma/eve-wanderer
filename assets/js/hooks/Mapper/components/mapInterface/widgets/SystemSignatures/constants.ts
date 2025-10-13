@@ -6,11 +6,13 @@ import {
   SignatureGroupENG,
   SignatureGroupFR,
   SignatureGroupRU,
+  SignatureGroupZhCN,
   SignatureKind,
   SignatureKindDE,
   SignatureKindENG,
   SignatureKindFR,
   SignatureKindRU,
+  SignatureKindZhCN,
 } from '@/hooks/Mapper/types';
 
 export const TIME_ONE_MINUTE = 1000 * 60;
@@ -54,6 +56,15 @@ export const LANGUAGE_GROUP_MAPPINGS = {
     [SignatureGroupENG.CombatSite]: SignatureGroup.CombatSite,
     [SignatureGroupENG.Wormhole]: SignatureGroup.Wormhole,
     [SignatureGroupENG.CosmicSignature]: SignatureGroup.CosmicSignature,
+  },
+  ZhCN: {
+    [SignatureGroupZhCN.GasSite]: SignatureGroup.GasSite,
+    [SignatureGroupZhCN.RelicSite]: SignatureGroup.RelicSite,
+    [SignatureGroupZhCN.DataSite]: SignatureGroup.DataSite,
+    [SignatureGroupZhCN.OreSite]: SignatureGroup.OreSite,
+    [SignatureGroupZhCN.CombatSite]: SignatureGroup.CombatSite,
+    [SignatureGroupZhCN.Wormhole]: SignatureGroup.Wormhole,
+    [SignatureGroupZhCN.CosmicSignature]: SignatureGroup.CosmicSignature,
   },
   RU: {
     [SignatureGroupRU.GasSite]: SignatureGroup.GasSite,
@@ -190,6 +201,15 @@ export const LANGUAGE_TYPE_MAPPINGS = {
     [SignatureKindENG.Deployable]: SignatureKind.Deployable,
     [SignatureKindENG.Drone]: SignatureKind.Drone,
     [SignatureKindENG.Starbase]: SignatureKind.Starbase,
+  },
+  ZhCN: {
+    [SignatureKindZhCN.CosmicSignature]: SignatureKind.CosmicSignature,
+    [SignatureKindZhCN.CosmicAnomaly]: SignatureKind.CosmicAnomaly,
+    [SignatureKindZhCN.Structure]: SignatureKind.Structure,
+    [SignatureKindZhCN.Ship]: SignatureKind.Ship,
+    [SignatureKindZhCN.Deployable]: SignatureKind.Deployable,
+    [SignatureKindZhCN.Drone]: SignatureKind.Drone,
+    [SignatureKindZhCN.Starbase]: SignatureKind.Starbase,
   },
   RU: {
     [SignatureKindRU.CosmicSignature]: SignatureKind.CosmicSignature,

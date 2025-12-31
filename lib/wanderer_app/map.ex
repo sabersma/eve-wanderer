@@ -7,9 +7,12 @@ defmodule WandererApp.Map do
 
   require Logger
 
+  @map_state_cache :map_state_cache
+
   defstruct map_id: nil,
             name: nil,
             scope: :none,
+            scopes: nil,
             owner_id: nil,
             characters: [],
             systems: Map.new(),
@@ -20,11 +23,18 @@ defmodule WandererApp.Map do
             characters_limit: nil,
             hubs_limit: nil
 
-  def new(%{id: map_id, name: name, scope: scope, owner_id: owner_id, acls: acls, hubs: hubs}) do
+  def new(
+        %{id: map_id, name: name, scope: scope, owner_id: owner_id, acls: acls, hubs: hubs} =
+          input
+      ) do
+    # Extract the new scopes array field if present (nil if not set)
+    scopes = Map.get(input, :scopes)
+
     map =
       struct!(__MODULE__,
         map_id: map_id,
         scope: scope,
+        scopes: scopes,
         owner_id: owner_id,
         name: name,
         acls: acls,
@@ -51,8 +61,8 @@ defmodule WandererApp.Map do
       {:ok, map} ->
         map
 
-      _ ->
-        Logger.error(fn -> "Failed to get map #{map_id}" end)
+      error ->
+        Logger.error("Failed to get map #{map_id}: #{inspect(error)}")
         %{}
     end
   end
@@ -68,6 +78,50 @@ defmodule WandererApp.Map do
       end
     end)
   end
+
+  def get_map_state(map_id, init_if_empty? \\ true) do
+    case Cachex.get(@map_state_cache, map_id) do
+      {:ok, nil} ->
+        case init_if_empty? do
+          true ->
+            map_state = WandererApp.Map.Server.Impl.do_init_state(map_id: map_id)
+            Cachex.put(@map_state_cache, map_id, map_state)
+            {:ok, map_state}
+
+          _ ->
+            {:ok, nil}
+        end
+
+      {:ok, map_state} ->
+        {:ok, map_state}
+    end
+  end
+
+  def get_map_state!(map_id) do
+    case get_map_state(map_id) do
+      {:ok, map_state} ->
+        map_state
+
+      _ ->
+        Logger.error("Failed to get map_state #{map_id}")
+        throw("Failed to get map_state #{map_id}")
+    end
+  end
+
+  def update_map_state(map_id, state_update),
+    do:
+      Cachex.get_and_update(@map_state_cache, map_id, fn map_state ->
+        case map_state do
+          nil ->
+            new_state = WandererApp.Map.Server.Impl.do_init_state(map_id: map_id)
+            {:commit, Map.merge(new_state, state_update)}
+
+          _ ->
+            {:commit, Map.merge(map_state, state_update)}
+        end
+      end)
+
+  def delete_map_state(map_id), do: Cachex.del(@map_state_cache, map_id)
 
   def get_characters_limit(map_id),
     do: {:ok, map_id |> get_map!() |> Map.get(:characters_limit, 50)}
@@ -87,6 +141,22 @@ defmodule WandererApp.Map do
 
   def get_options(map_id),
     do: {:ok, map_id |> get_map!() |> Map.get(:options, Map.new())}
+
+  def get_tracked_character_ids(map_id) do
+    {:ok,
+     map_id
+     |> get_map!()
+     |> Map.get(:characters, [])
+     |> Enum.filter(fn character_id ->
+       {:ok, tracking_start_time} =
+         WandererApp.Cache.lookup(
+           "character:#{character_id}:map:#{map_id}:tracking_start_time",
+           nil
+         )
+
+       not is_nil(tracking_start_time)
+     end)}
+  end
 
   @doc """
   Returns a full list of characters in the map
@@ -115,7 +185,7 @@ defmodule WandererApp.Map do
   end
 
   def list_hubs(map_id, hubs) do
-    {:ok, map} = map_id |> get_map()
+    {:ok, _map} = map_id |> get_map()
 
     {:ok, hubs}
   end
@@ -137,9 +207,31 @@ defmodule WandererApp.Map do
 
   def add_characters!(map, []), do: map
 
-  def add_characters!(%{map_id: map_id} = map, [character | rest]) do
-    add_character(map_id, character)
-    add_characters!(map, rest)
+  def add_characters!(%{map_id: map_id} = map, characters) when is_list(characters) do
+    # Get current characters list once
+    current_characters = Map.get(map, :characters, [])
+
+    characters_ids =
+      characters
+      |> Enum.map(fn %{character_id: char_id} -> char_id end)
+
+    # Filter out characters that already exist
+    new_character_ids =
+      characters_ids
+      |> Enum.reject(fn char_id -> char_id in current_characters end)
+
+    # If all characters already exist, return early
+    if new_character_ids == [] do
+      map
+    else
+      case update_map(map_id, %{characters: new_character_ids ++ current_characters}) do
+        {:commit, map} ->
+          map
+
+        _ ->
+          map
+      end
+    end
   end
 
   def add_character(
@@ -152,64 +244,13 @@ defmodule WandererApp.Map do
 
     case not (characters |> Enum.member?(character_id)) do
       true ->
-        WandererApp.Character.get_map_character(map_id, character_id)
-        |> case do
-          {:ok,
-           %{
-             alliance_id: alliance_id,
-             corporation_id: corporation_id,
-             solar_system_id: solar_system_id,
-             structure_id: structure_id,
-             station_id: station_id,
-             ship: ship_type_id,
-             ship_name: ship_name
-           }} ->
-            map_id
-            |> update_map(%{characters: [character_id | characters]})
+        map_id
+        |> update_map(%{characters: [character_id | characters]})
 
-            # WandererApp.Cache.insert(
-            #   "map:#{map_id}:character:#{character_id}:alliance_id",
-            #   alliance_id
-            # )
-
-            # WandererApp.Cache.insert(
-            #   "map:#{map_id}:character:#{character_id}:corporation_id",
-            #   corporation_id
-            # )
-
-            # WandererApp.Cache.insert(
-            #   "map:#{map_id}:character:#{character_id}:solar_system_id",
-            #   solar_system_id
-            # )
-
-            # WandererApp.Cache.insert(
-            #   "map:#{map_id}:character:#{character_id}:structure_id",
-            #   structure_id
-            # )
-
-            # WandererApp.Cache.insert(
-            #   "map:#{map_id}:character:#{character_id}:station_id",
-            #   station_id
-            # )
-
-            # WandererApp.Cache.insert(
-            #   "map:#{map_id}:character:#{character_id}:ship_type_id",
-            #   ship_type_id
-            # )
-
-            # WandererApp.Cache.insert(
-            #   "map:#{map_id}:character:#{character_id}:ship_name",
-            #   ship_name
-            # )
-
-            :ok
-
-          error ->
-            error
-        end
+        :ok
 
       _ ->
-        {:error, :already_exists}
+        :ok
     end
   end
 
@@ -282,7 +323,7 @@ defmodule WandererApp.Map do
     end
   end
 
-  def update_subscription_settings!(%{map_id: map_id} = map, %{
+  def update_subscription_settings!(%{map_id: map_id} = _map, %{
         characters_limit: characters_limit,
         hubs_limit: hubs_limit
       }) do
@@ -293,7 +334,7 @@ defmodule WandererApp.Map do
     |> get_map!()
   end
 
-  def update_options!(%{map_id: map_id} = map, options) do
+  def update_options!(%{map_id: map_id} = _map, options) do
     map_id
     |> update_map(%{options: options})
 
@@ -486,15 +527,16 @@ defmodule WandererApp.Map do
         solar_system_source,
         solar_system_target
       ) do
-    case map_id
-         |> get_map!()
-         |> Map.get(:connections, Map.new())
+    connections =
+      map_id
+      |> get_map!()
+      |> Map.get(:connections, Map.new())
+
+    case connections
          |> Map.get("#{solar_system_source}_#{solar_system_target}") do
       nil ->
         {:ok,
-         map_id
-         |> get_map!()
-         |> Map.get(:connections, Map.new())
+         connections
          |> Map.get("#{solar_system_target}_#{solar_system_source}")}
 
       connection ->

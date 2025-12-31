@@ -50,14 +50,9 @@ defmodule WandererApp.Character.TrackerPoolDynamicSupervisor do
     end
   end
 
-  def is_not_tracked?(tracked_id) do
-    {:ok, tracked_ids} = Cachex.get(@cache, :tracked_characters)
-    tracked_ids |> Enum.member?(tracked_id) |> Kernel.not()
-  end
-
   defp get_available_pool([]), do: nil
 
-  defp get_available_pool([{pid, uuid} | pools]) do
+  defp get_available_pool([{_pid, uuid} | pools]) do
     case Registry.lookup(@unique_registry, Module.concat(WandererApp.Character.TrackerPool, uuid)) do
       [] ->
         nil
@@ -67,8 +62,8 @@ defmodule WandererApp.Character.TrackerPoolDynamicSupervisor do
           nil ->
             get_available_pool(pools)
 
-          pid ->
-            pid
+          pool_pid ->
+            pool_pid
         end
     end
   end
@@ -91,17 +86,6 @@ defmodule WandererApp.Character.TrackerPoolDynamicSupervisor do
 
       {:error, {:already_started, pid}} ->
         {:ok, pid}
-    end
-  end
-
-  defp stop_child(uuid) do
-    case Registry.lookup(@registry, uuid) do
-      [{pid, _}] ->
-        GenServer.cast(pid, :stop)
-
-      _ ->
-        Logger.warn("Unable to locate pool assigned to #{inspect(uuid)}")
-        :ok
     end
   end
 end

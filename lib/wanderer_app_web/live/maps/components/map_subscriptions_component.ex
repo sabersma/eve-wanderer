@@ -6,6 +6,7 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
 
   alias BetterNumber, as: Number
   alias WandererApp.License.LicenseManager
+  alias WandererApp.Map.SubscriptionManager
 
   @impl true
   def mount(socket) do
@@ -14,6 +15,9 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
        is_adding_subscription?: false,
        map_subscriptions: [],
        selected_subscription: nil,
+       promo_code: "",
+       promo_code_valid?: false,
+       promo_code_error: nil,
        subscription_periods: [
          {"1 Month", "1"},
          {"3 Months", "3"},
@@ -33,16 +37,17 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
       "period" => "1",
       "characters_limit" => "50",
       "hubs_limit" => "20",
-      "auto_renew?" => true
+      "auto_renew?" => true,
+      "promo_code" => ""
     }
 
     {:ok, map} = WandererApp.MapRepo.get(map_id)
 
-    {:ok, estimated_price, discount} =
-      WandererApp.Map.SubscriptionManager.estimate_price(subscription_form, false)
+    {:ok, estimated_price, discount, _promo_valid?} =
+      SubscriptionManager.estimate_price(subscription_form, false)
 
     {:ok, map_subscriptions} =
-      WandererApp.Map.SubscriptionManager.get_map_subscriptions(map_id)
+      SubscriptionManager.get_map_subscriptions(map_id)
 
     socket =
       socket
@@ -52,7 +57,10 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
         map_subscriptions: map_subscriptions,
         subscription_form: subscription_form |> to_form(),
         estimated_price: estimated_price,
-        discount: discount
+        discount: discount,
+        promo_code: "",
+        promo_code_valid?: false,
+        promo_code_error: nil
       )
 
     {:ok, socket}
@@ -72,11 +80,12 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
       "plan" => "omega",
       "characters_limit" => "#{selected_subscription.characters_limit}",
       "hubs_limit" => "#{selected_subscription.hubs_limit}",
-      "auto_renew?" => selected_subscription.auto_renew?
+      "auto_renew?" => selected_subscription.auto_renew?,
+      "promo_code" => ""
     }
 
-    {:ok, additional_price, discount} =
-      WandererApp.Map.SubscriptionManager.calc_additional_price(
+    {:ok, additional_price, discount, _promo_valid?} =
+      SubscriptionManager.calc_additional_price(
         subscription_form,
         selected_subscription
       )
@@ -88,6 +97,9 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
        selected_subscription: selected_subscription,
        additional_price: additional_price,
        discount: discount,
+       promo_code: "",
+       promo_code_valid?: false,
+       promo_code_error: nil,
        subscription_form: subscription_form |> to_form()
      )}
   end
@@ -103,21 +115,21 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
       |> WandererApp.Api.MapSubscription.by_id!()
       |> WandererApp.Api.MapSubscription.cancel()
 
-    {:ok, map_subscriptions} = WandererApp.Map.SubscriptionManager.get_map_subscriptions(map_id)
+    {:ok, map_subscriptions} = SubscriptionManager.get_map_subscriptions(map_id)
 
     Phoenix.PubSub.broadcast(
       WandererApp.PubSub,
       "maps:#{map_id}",
-      :subscription_settings_updated
+      {:subscription_settings_updated, map_id}
     )
 
     :telemetry.execute([:wanderer_app, :map, :subscription, :cancel], %{count: 1}, %{
       map_id: map_id
     })
 
-    case WandererApp.License.LicenseManager.get_license_by_map_id(map_id) do
+    case LicenseManager.get_license_by_map_id(map_id) do
       {:ok, license} ->
-        WandererApp.License.LicenseManager.invalidate_license(license.id)
+        LicenseManager.invalidate_license(license.id)
         Logger.info("Cancelled license for map #{map_id}")
 
       {:error, reason} ->
@@ -141,23 +153,46 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
         params,
         %{assigns: %{selected_subscription: selected_subscription}} = socket
       ) do
+    promo_code = Map.get(params, "promo_code", "")
+
+    # Validate promo code and set error message
+    {promo_code_valid?, promo_code_error} =
+      case WandererApp.Env.validate_promo_code(promo_code) do
+        {:ok, _discount} -> {true, nil}
+        {:error, :invalid_code} when promo_code != "" -> {false, "Invalid promo code"}
+        _ -> {false, nil}
+      end
+
     socket =
       case is_nil(selected_subscription) do
         true ->
-          {:ok, estimated_price, discount} =
+          {:ok, estimated_price, discount, _valid?} =
             WandererApp.Map.SubscriptionManager.estimate_price(params, false)
 
           socket
-          |> assign(estimated_price: estimated_price, discount: discount)
+          |> assign(
+            estimated_price: estimated_price,
+            discount: discount,
+            promo_code: promo_code,
+            promo_code_valid?: promo_code_valid?,
+            promo_code_error: promo_code_error
+          )
 
         _ ->
-          {:ok, additional_price, discount} =
+          {:ok, additional_price, discount, _valid?} =
             WandererApp.Map.SubscriptionManager.calc_additional_price(
               params,
               selected_subscription
             )
 
-          socket |> assign(additional_price: additional_price, discount: discount)
+          socket
+          |> assign(
+            additional_price: additional_price,
+            discount: discount,
+            promo_code: promo_code,
+            promo_code_valid?: promo_code_valid?,
+            promo_code_error: promo_code_error
+          )
       end
 
     {:noreply, assign(socket, subscription_form: params)}
@@ -175,8 +210,9 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
         %{assigns: %{map_id: map_id, map: map, current_user: current_user}} = socket
       ) do
     period = period |> String.to_integer()
+    promo_code = Map.get(subscription_form, "promo_code", "")
 
-    {:ok, estimated_price, discount} =
+    {:ok, estimated_price, discount, _promo_valid?} =
       WandererApp.Map.SubscriptionManager.estimate_price(subscription_form, false)
 
     active_till =
@@ -213,12 +249,13 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
         Phoenix.PubSub.broadcast(
           WandererApp.PubSub,
           "maps:#{map_id}",
-          :subscription_settings_updated
+          {:subscription_settings_updated, map_id}
         )
 
         :telemetry.execute([:wanderer_app, :map, :subscription, :new], %{count: 1}, %{
           map_id: map_id,
-          amount: estimated_price - discount
+          amount: estimated_price - discount,
+          promo_code: if(promo_code != "", do: String.upcase(promo_code), else: nil)
         })
 
         # Automatically create a license for the map
@@ -265,7 +302,7 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
           }
         } = socket
       ) do
-    {:ok, additional_price, discount} =
+    {:ok, additional_price, discount, _promo_valid?} =
       WandererApp.Map.SubscriptionManager.calc_additional_price(
         subscription_form,
         selected_subscription
@@ -299,7 +336,7 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
         Phoenix.PubSub.broadcast(
           WandererApp.PubSub,
           "maps:#{map_id}",
-          :subscription_settings_updated
+          {:subscription_settings_updated, map_id}
         )
 
         :telemetry.execute([:wanderer_app, :map, :subscription, :update], %{count: 1}, %{
@@ -309,12 +346,10 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
 
         # Check if a license exists, if not create one, otherwise update its expiration
         # The License Manager service will verify the subscription is active
-        case WandererApp.License.LicenseManager.get_license_by_map_id(map_id) do
+        case LicenseManager.get_license_by_map_id(map_id) do
           {:ok, _license} ->
             # License exists, update its expiration date
-            case WandererApp.License.LicenseManager.update_license_expiration_from_subscription(
-                   map_id
-                 ) do
+            case LicenseManager.update_license_expiration_from_subscription(map_id) do
               {:ok, updated_license} ->
                 Logger.info(
                   "Updated license expiration for map #{map_id} to #{updated_license.expire_at}"
@@ -376,7 +411,7 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
 
   defp create_map_license(socket, map_id) do
     # No license found, create one
-    case WandererApp.License.LicenseManager.create_license_for_map(map_id) do
+    case LicenseManager.create_license_for_map(map_id) do
       {:ok, license} ->
         Logger.debug(fn ->
           "Automatically created license #{license.license_key} for map #{map_id} during subscription update"
@@ -538,6 +573,17 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
             class="range range-xs"
           />
           <.input field={f[:auto_renew?]} label="Auto Renew" type="checkbox" />
+          <div :if={is_nil(@selected_subscription)} class="mt-2">
+            <.input
+              field={f[:promo_code]}
+              label="Promo Code (optional)"
+              type="text"
+              placeholder="Enter promo code"
+              class="input input-bordered w-full"
+            />
+            <p :if={@promo_code_error} class="text-rose-500 text-xs mt-1">{@promo_code_error}</p>
+            <p :if={@promo_code_valid?} class="text-green-500 text-xs mt-1">✓ Promo code applied!</p>
+          </div>
           <div
             :if={is_nil(@selected_subscription)}
             class="stats w-full bg-primary text-primary-content mt-2"
@@ -557,7 +603,12 @@ defmodule WandererAppWeb.Maps.MapSubscriptionsComponent do
                   </div>
                 </div>
                 <div>
-                  <div class="stat-title">Discount</div>
+                  <div class="stat-title">
+                    Discount
+                    <span :if={@promo_code_valid?} class="text-xs text-green-400 ml-1">
+                      (incl. promo)
+                    </span>
+                  </div>
                   <div class="stat-value text-white relative">
                     ISK {@discount
                     |> Number.to_human(units: ["", "K", "M", "B", "T", "P"])}

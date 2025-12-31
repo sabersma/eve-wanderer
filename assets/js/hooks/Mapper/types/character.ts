@@ -33,7 +33,6 @@ export type CharacterTypeRaw = {
   corporation_id: number;
   corporation_name: string;
   corporation_ticker: string;
-  tracking_paused: boolean;
 };
 
 export interface TrackingCharacter {
@@ -69,4 +68,5 @@ export interface ActivitySummary {
   passages: number;
   connections: number;
   signatures: number;
+  timestamp?: string;
 }

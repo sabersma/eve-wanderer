@@ -16,6 +16,14 @@ defmodule WandererApp.Api.AccessListMember do
 
     includes([:access_list])
 
+    default_fields([
+      :name,
+      :eve_character_id,
+      :eve_corporation_id,
+      :eve_alliance_id,
+      :role
+    ])
+
     derive_filter?(true)
     derive_sort?(true)
 
@@ -53,7 +61,11 @@ defmodule WandererApp.Api.AccessListMember do
       :role
     ]
 
-    defaults [:create, :read, :update, :destroy]
+    defaults [:create, :read, :destroy]
+
+    update :update do
+      require_atomic? false
+    end
 
     read :read_by_access_list do
       argument(:access_list_id, :string, allow_nil?: false)
@@ -67,12 +79,14 @@ defmodule WandererApp.Api.AccessListMember do
 
     update :block do
       accept([])
+      require_atomic? false
 
       change(set_attribute(:blocked, true))
     end
 
     update :unblock do
       accept([])
+      require_atomic? false
 
       change(set_attribute(:blocked, false))
     end
@@ -83,22 +97,27 @@ defmodule WandererApp.Api.AccessListMember do
 
     attribute :name, :string do
       allow_nil? false
+      public? true
     end
 
     attribute :eve_character_id, :string do
       allow_nil? true
+      public? true
     end
 
     attribute :eve_corporation_id, :string do
       allow_nil? true
+      public? true
     end
 
     attribute :eve_alliance_id, :string do
       allow_nil? true
+      public? true
     end
 
     attribute :role, :atom do
       default "viewer"
+      public? true
 
       constraints(
         one_of: [

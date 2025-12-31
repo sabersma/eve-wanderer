@@ -4,8 +4,7 @@ defmodule WandererAppWeb.MapAuditAPIController do
 
   require Logger
 
-  alias WandererApp.Api
-
+  alias WandererAppWeb.UserActivityItem
   alias WandererAppWeb.Helpers.APIUtils
 
   # -----------------------------------------------------------------
@@ -115,7 +114,7 @@ defmodule WandererAppWeb.MapAuditAPIController do
          {:ok, period} <- APIUtils.require_param(params, "period"),
          query <- WandererApp.Map.Audit.get_map_activity_query(map_id, period, "all"),
          {:ok, data} <-
-           Ash.read(query) do
+           Ash.read(query, read_opts()) do
       data = Enum.map(data, &map_audit_event_to_json/1)
       json(conn, %{data: data})
     else
@@ -131,6 +130,18 @@ defmodule WandererAppWeb.MapAuditAPIController do
     end
   end
 
+  # In test environment, disable concurrency to avoid Ecto Sandbox ownership issues
+  # In production, allow concurrent loading for better performance
+  defp read_opts do
+    base_opts = [authorize?: false]
+
+    if Application.get_env(:wanderer_app, :sql_sandbox) do
+      Keyword.put(base_opts, :max_concurrency, 0)
+    else
+      base_opts
+    end
+  end
+
   defp map_audit_event_to_json(
          %{event_type: event_type, event_data: event_data, character: character} = event
        ) do
@@ -143,10 +154,10 @@ defmodule WandererAppWeb.MapAuditAPIController do
 
     result
     |> Map.put(:character, WandererAppWeb.MapEventHandler.map_ui_character_stat(character))
-    |> Map.put(:event_name, WandererAppWeb.UserActivity.get_event_name(event_type))
+    |> Map.put(:event_name, WandererAppWeb.UserActivityItem.get_event_name(event_type))
     |> Map.put(
       :event_data,
-      WandererAppWeb.UserActivity.get_event_data(
+      WandererAppWeb.UserActivityItem.get_event_data(
         event_type,
         Jason.decode!(event_data) |> Map.drop(["character_id"])
       )

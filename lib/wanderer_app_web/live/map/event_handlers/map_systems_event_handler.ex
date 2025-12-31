@@ -41,7 +41,6 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         },
         %{
           assigns: %{
-            current_user: current_user,
             tracked_characters: tracked_characters,
             map_id: map_id,
             map_user_settings: map_user_settings,
@@ -106,7 +105,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         %{"solar_system_id" => solar_system_id, "coordinates" => coordinates} = _event,
         %{
           assigns: %{
-            current_user: current_user,
+            current_user: %{id: current_user_id},
             has_tracked_characters?: true,
             map_id: map_id,
             main_character_id: main_character_id,
@@ -122,7 +121,42 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         solar_system_id: solar_system_id,
         coordinates: coordinates
       },
-      current_user.id,
+      current_user_id,
+      main_character_id
+    )
+
+    {:noreply, socket}
+  end
+
+  def handle_ui_event(
+        "manual_paste_systems_and_connections",
+        %{
+          "connections" => connections,
+          "systems" => systems
+        } = _event,
+        %{
+          assigns: %{
+            current_user: %{id: current_user_id},
+            has_tracked_characters?: true,
+            map_id: map_id,
+            main_character_id: main_character_id,
+            user_permissions: %{add_system: true}
+          }
+        } =
+          socket
+      )
+      when not is_nil(main_character_id) do
+    WandererApp.Map.Server.paste_systems(
+      map_id,
+      systems,
+      current_user_id,
+      main_character_id
+    )
+
+    WandererApp.Map.Server.paste_connections(
+      map_id,
+      connections,
+      current_user_id,
       main_character_id
     )
 
@@ -173,7 +207,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         %{
           assigns: %{
             map_id: map_id,
-            current_user: current_user,
+            current_user: %{id: current_user_id},
             main_character_id: main_character_id,
             has_tracked_characters?: true,
             user_permissions: %{update_system: true} = user_permissions
@@ -215,15 +249,14 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         |> Map.put_new(key_atom, value)
       ])
 
-      {:ok, _} =
-        WandererApp.User.ActivityTracker.track_map_event(:system_updated, %{
-          character_id: main_character_id,
-          user_id: current_user.id,
-          map_id: map_id,
-          solar_system_id: "#{solar_system_id}" |> String.to_integer(),
-          key: key_atom,
-          value: value
-        })
+      WandererApp.User.ActivityTracker.track_map_event(:system_updated, %{
+        character_id: main_character_id,
+        user_id: current_user_id,
+        map_id: map_id,
+        solar_system_id: "#{solar_system_id}" |> String.to_integer(),
+        key: key_atom,
+        value: value
+      })
     end
 
     {:noreply, socket}
@@ -267,7 +300,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         %{
           assigns: %{
             map_id: map_id,
-            current_user: current_user,
+            current_user: %{id: current_user_id},
             main_character_id: main_character_id,
             has_tracked_characters?: true,
             user_permissions: %{delete_system: true}
@@ -279,7 +312,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     map_id
     |> WandererApp.Map.Server.delete_systems(
       solar_system_ids |> Enum.map(&String.to_integer/1),
-      current_user.id,
+      current_user_id,
       main_character_id
     )
 

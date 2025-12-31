@@ -4,7 +4,7 @@ import Config
 config :wanderer_app, WandererApp.Repo,
   username: "postgres",
   password: "postgres",
-  hostname: System.get_env("DB_HOST", "localhost"),
+  hostname: "localhost",
   database: "wanderer_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
@@ -63,6 +63,7 @@ config :wanderer_app, WandererAppWeb.Endpoint,
   ]
 
 config :wanderer_app,
+  environment: :dev,
   dev_routes: true
 
 # Do not include metadata nor timestamps in development logs

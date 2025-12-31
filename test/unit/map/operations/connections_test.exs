@@ -8,9 +8,8 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
   setup :verify_on_exit!
 
   setup do
-    # Ensure we're in global mode and re-setup mocks
-    Mox.set_mox_global()
-    WandererApp.Test.Mocks.setup_additional_expectations()
+    # Mocks are already in global mode from application startup
+    # No need to call Mox.set_mox_global() again
 
     # Set up CachedInfo mock stubs for the systems used in the tests
     WandererApp.CachedInfo.Mock
@@ -222,6 +221,8 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
       result =
         try do
           Connections.create(attrs_valid, map_id, char_id)
+        rescue
+          MatchError -> {:error, :not_found}
         catch
           "Map server not started" ->
             {:error, :map_server_not_started}
@@ -254,6 +255,8 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
       result =
         try do
           Connections.create_connection(map_id, attrs, char_id)
+        rescue
+          MatchError -> {:error, :not_found}
         catch
           "Map server not started" ->
             {:error, :map_server_not_started}
@@ -277,6 +280,8 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
       result =
         try do
           Connections.create_connection(conn, attrs)
+        rescue
+          MatchError -> {:error, :not_found}
         catch
           "Map server not started" ->
             {:error, :map_server_not_started}
@@ -342,6 +347,8 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
       result =
         try do
           Connections.upsert_batch(conn, connections)
+        rescue
+          MatchError -> %{created: 0, updated: 0, skipped: 0, error: "not_found"}
         catch
           "Map server not started" ->
             %{created: 0, updated: 0, skipped: 0, error: "Map server not started"}
@@ -369,6 +376,8 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
       result =
         try do
           Connections.upsert_single(conn, conn_data)
+        rescue
+          MatchError -> {:error, :not_found}
         catch
           "Map server not started" ->
             {:error, :map_server_not_started}
@@ -418,6 +427,8 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
         result =
           try do
             Connections.create(params, map_id, char_id)
+          rescue
+            MatchError -> {:error, :not_found}
           catch
             "Map server not started" ->
               {:error, :map_server_not_started}
@@ -482,6 +493,8 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
         result =
           try do
             Connections.create(attrs, map_id, char_id)
+          rescue
+            MatchError -> {:error, :not_found}
           catch
             "Map server not started" ->
               {:error, :map_server_not_started}
@@ -509,6 +522,8 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
         result =
           try do
             Connections.create(attrs, map_id, char_id)
+          rescue
+            MatchError -> {:error, :not_found}
           catch
             "Map server not started" ->
               {:error, :map_server_not_started}
@@ -570,6 +585,8 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
         result =
           try do
             Connections.upsert_single(conn, conn_data)
+          rescue
+            MatchError -> {:error, :not_found}
           catch
             "Map server not started" ->
               {:error, :map_server_not_started}

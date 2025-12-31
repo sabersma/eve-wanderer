@@ -3,7 +3,7 @@ defmodule WandererApp.MixProject do
 
   @source_url "https://github.com/wanderer-industries/wanderer"
 
-  @version "1.81.3"
+  @version "1.91.5"
 
   def project do
     [
@@ -97,12 +97,12 @@ defmodule WandererApp.MixProject do
       {:dart_sass, "~> 0.5.1", runtime: Mix.env() == :dev},
       {:oauth2, "~> 1.0 or ~> 2.0"},
       {:ueberauth, "~> 0.10.0"},
-      {:req, "~> 0.4.0"},
-      {:ash, "~> 3.4"},
-      {:ash_cloak, "~> 0.1.2"},
+      {:req, "~> 0.5"},
+      {:ash, "~> 3.9"},
+      {:ash_cloak, "~> 0.1.7"},
       {:ash_json_api, "~> 1.4"},
       {:ash_phoenix, "~> 2.1"},
-      {:ash_postgres, "~> 2.4"},
+      {:ash_postgres, "~> 2.6"},
       {:exsync, "~> 0.4", only: :dev},
       {:nimble_csv, "~> 1.2.0"},
       {:ecto_ulid_next, "~> 1.0.2"},
@@ -120,7 +120,6 @@ defmodule WandererApp.MixProject do
       {:makeup_elixir, ">= 0.0.0"},
       {:makeup_erlang, ">= 0.0.0"},
       {:better_number, "~> 1.0.0"},
-      {:delta_crdt, "~> 0.6.5", override: true},
       {:qex, "~> 0.5"},
       {:site_encrypt, "~> 0.6.0"},
       {:bandit, "~> 1.0"},
@@ -132,7 +131,6 @@ defmodule WandererApp.MixProject do
       {:git_ops, "~> 2.6.1"},
       {:version_tasks, "~> 0.12.0"},
       {:error_tracker, "~> 0.2"},
-      {:ddrt, "~> 0.2.1"},
       {:live_view_events, "~> 0.1.0"},
       {:ash_pagify, "~> 1.4.1"},
       {:timex, "~> 3.0"},

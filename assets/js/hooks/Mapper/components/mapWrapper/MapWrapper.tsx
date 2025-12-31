@@ -1,36 +1,36 @@
-import { Map, MAP_ROOT_ID } from '@/hooks/Mapper/components/map/Map.tsx';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CommandSelectSystems, OutCommand, OutCommandHandler, SolarSystemConnection } from '@/hooks/Mapper/types';
-import { MapRootData, useMapRootState } from '@/hooks/Mapper/mapRootProvider';
-import { OnMapAddSystemCallback, OnMapSelectionChange } from '@/hooks/Mapper/components/map/map.types.ts';
-import isEqual from 'lodash.isequal';
 import { ContextMenuSystem, useContextMenuSystemHandlers } from '@/hooks/Mapper/components/contexts';
+import { Map, MAP_ROOT_ID } from '@/hooks/Mapper/components/map/Map.tsx';
+import { OnMapAddSystemCallback, OnMapSelectionChange } from '@/hooks/Mapper/components/map/map.types.ts';
 import {
   SystemCustomLabelDialog,
   SystemLinkSignatureDialog,
   SystemSettingsDialog,
 } from '@/hooks/Mapper/components/mapInterface/components';
 import { Connections } from '@/hooks/Mapper/components/mapRootContent/components/Connections';
-import { ContextMenuSystemMultiple, useContextMenuSystemMultipleHandlers } from '../contexts/ContextMenuSystemMultiple';
 import { getSystemById } from '@/hooks/Mapper/helpers';
+import { MapRootData, useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import { CommandSelectSystems, OutCommand, OutCommandHandler, SolarSystemConnection } from '@/hooks/Mapper/types';
 import { Commands } from '@/hooks/Mapper/types/mapHandlers.ts';
-import { Node, useReactFlow, XYPosition } from 'reactflow';
+import isEqual from 'lodash.isequal';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Node, useReactFlow, Viewport, XYPosition } from 'reactflow';
+import { ContextMenuSystemMultiple, useContextMenuSystemMultipleHandlers } from '../contexts/ContextMenuSystemMultiple';
 
-import { useCommandsSystems } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 import { emitMapEvent, useMapEventListener } from '@/hooks/Mapper/events';
+import { useCommandsSystems } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 
 import { useDeleteSystems } from '@/hooks/Mapper/components/contexts/hooks';
-import { useCommonMapEventProcessor } from '@/hooks/Mapper/components/mapWrapper/hooks/useCommonMapEventProcessor.ts';
 import {
   AddSystemDialog,
   SearchOnSubmitCallback,
 } from '@/hooks/Mapper/components/mapInterface/components/AddSystemDialog';
-import { useHotkey } from '../../hooks/useHotkey';
-import { PingType } from '@/hooks/Mapper/types/ping.ts';
 import { SystemPingDialog } from '@/hooks/Mapper/components/mapInterface/components/SystemPingDialog';
-import { MiniMapPlacement } from '@/hooks/Mapper/mapRootProvider/types.ts';
+import { useCommonMapEventProcessor } from '@/hooks/Mapper/components/mapWrapper/hooks/useCommonMapEventProcessor.ts';
 import { MINIMAP_PLACEMENT_MAP } from '@/hooks/Mapper/constants.ts';
+import { MiniMapPlacement } from '@/hooks/Mapper/mapRootProvider/types.ts';
+import { PingType } from '@/hooks/Mapper/types/ping.ts';
 import type { PanelPosition } from '@reactflow/core';
+import { useHotkey } from '../../hooks/useHotkey';
 import { MINI_MAP_PLACEMENT_OFFSETS } from './constants.ts';
 
 // TODO: INFO - this component needs for abstract work with Map instance
@@ -48,7 +48,7 @@ export const MapWrapper = () => {
       linkSignatureToSystem,
       systemSignatures,
     },
-    storedSettings: { interfaceSettings, settingsLocal },
+    storedSettings: { interfaceSettings, settingsLocal, mapSettings, mapSettingsUpdate },
   } = useMapRootState();
 
   const {
@@ -83,8 +83,17 @@ export const MapWrapper = () => {
     systems,
     systemSignatures,
     deleteSystems,
+    mapSettingsUpdate,
   });
-  ref.current = { selectedConnections, selectedSystems, systemContextProps, systems, systemSignatures, deleteSystems };
+  ref.current = {
+    selectedConnections,
+    selectedSystems,
+    systemContextProps,
+    systems,
+    systemSignatures,
+    deleteSystems,
+    mapSettingsUpdate,
+  };
 
   useMapEventListener(event => {
     runCommand(event);
@@ -97,7 +106,7 @@ export const MapWrapper = () => {
 
       runCommand({
         name: Commands.selectSystems,
-        data: { systems: selectedSystems } as CommandSelectSystems,
+        data: { systems: selectedSystems, delay: 200 } as CommandSelectSystems,
       });
     }
   });
@@ -120,6 +129,10 @@ export const MapWrapper = () => {
     },
     [update],
   );
+
+  const handleChangeViewport = useCallback((viewport: Viewport) => {
+    ref.current.mapSettingsUpdate({ viewport });
+  }, []);
 
   const handleCommand: OutCommandHandler = useCallback(
     event => {
@@ -259,6 +272,7 @@ export const MapWrapper = () => {
         onConnectionInfoClick={handleConnectionDbClick}
         onSystemContextMenu={handleSystemContextMenu}
         onSelectionContextMenu={handleSystemMultipleContext}
+        onChangeViewport={handleChangeViewport}
         minimapClasses={minimapClasses}
         isShowMinimap={showMinimap}
         showKSpaceBG={isShowKSpace}
@@ -270,6 +284,7 @@ export const MapWrapper = () => {
         onAddSystem={onAddSystem}
         minimapPlacement={minimapPosition}
         localShowShipName={settingsLocal.showShipName}
+        defaultViewport={mapSettings.viewport}
       />
 
       {openSettings != null && (

@@ -2,6 +2,8 @@ defmodule WandererApp.Esi do
   @moduledoc group: :esi
 
   defdelegate get_server_status, to: WandererApp.Esi.ApiClient
+  defdelegate get_group_info(group_id, opts \\ []), to: WandererApp.Esi.ApiClient
+  defdelegate get_type_info(type_id, opts \\ []), to: WandererApp.Esi.ApiClient
   defdelegate get_alliance_info(eve_id, opts \\ []), to: WandererApp.Esi.ApiClient
   defdelegate get_corporation_info(eve_id, opts \\ []), to: WandererApp.Esi.ApiClient
   defdelegate get_character_info(eve_id, opts \\ []), to: WandererApp.Esi.ApiClient
@@ -21,7 +23,8 @@ defmodule WandererApp.Esi do
   defdelegate get_character_location(character_eve_id, opts \\ []), to: WandererApp.Esi.ApiClient
   defdelegate get_character_online(character_eve_id, opts \\ []), to: WandererApp.Esi.ApiClient
   defdelegate get_character_ship(character_eve_id, opts \\ []), to: WandererApp.Esi.ApiClient
-  defdelegate find_routes(map_id, origin, hubs, routes_settings), to: WandererApp.Esi.ApiClient
+  defdelegate get_routes_custom(hubs, origin, params), to: WandererApp.Esi.ApiClient
+  defdelegate get_routes_eve(hubs, origin, params, opts), to: WandererApp.Esi.ApiClient
   defdelegate search(character_eve_id, opts \\ []), to: WandererApp.Esi.ApiClient
 
   defdelegate get_killmail(killmail_id, killmail_hash, opts \\ []), to: WandererApp.Esi.ApiClient

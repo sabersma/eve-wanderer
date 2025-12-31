@@ -8,23 +8,20 @@ defmodule WandererApp.Map.Manager do
   require Logger
 
   alias WandererApp.Map.Server
-  alias WandererApp.Map.ServerSupervisor
-  alias WandererApp.Api.MapSystemSignature
 
-  @maps_start_per_second 10
-  @maps_start_interval 1000
+  @environment Application.compile_env(:wanderer_app, :environment)
+
+  @maps_start_chunk_size 20
+  @maps_start_interval 500
   @maps_queue :maps_queue
-  @garbage_collection_interval :timer.hours(1)
   @check_maps_queue_interval :timer.seconds(1)
-  @signatures_cleanup_interval :timer.minutes(30)
-  @delete_after_minutes 30
 
   @pings_cleanup_interval :timer.minutes(10)
   @pings_expire_minutes 60
 
   # Test-aware async task runner
   defp safe_async_task(fun) do
-    if Mix.env() == :test do
+    if @environment == :test do
       # In tests, run synchronously to avoid database ownership issues
       try do
         fun.()
@@ -42,15 +39,11 @@ defmodule WandererApp.Map.Manager do
     do: WandererApp.Queue.push_uniq(@maps_queue, map_id)
 
   def stop_map(map_id) when is_binary(map_id) do
-    case Server.map_pid(map_id) do
-      pid when is_pid(pid) ->
-        GenServer.cast(
-          pid,
-          :stop
-        )
+    with {:ok, started_maps} <- WandererApp.Cache.lookup("started_maps", []),
+         true <- Enum.member?(started_maps, map_id) do
+      Logger.warning(fn -> "Shutting down map server: #{inspect(map_id)}" end)
 
-      nil ->
-        :ok
+      WandererApp.Map.MapPoolDynamicSupervisor.stop_map(map_id)
     end
   end
 
@@ -59,28 +52,17 @@ defmodule WandererApp.Map.Manager do
   @impl true
   def init([]) do
     WandererApp.Queue.new(@maps_queue, [])
+    WandererApp.Cache.insert("started_maps", [])
 
     {:ok, check_maps_queue_timer} =
       :timer.send_interval(@check_maps_queue_interval, :check_maps_queue)
 
-    {:ok, garbage_collector_timer} =
-      :timer.send_interval(@garbage_collection_interval, :garbage_collect)
-
-    {:ok, signatures_cleanup_timer} =
-      :timer.send_interval(@signatures_cleanup_interval, :cleanup_signatures)
-
     {:ok, pings_cleanup_timer} =
       :timer.send_interval(@pings_cleanup_interval, :cleanup_pings)
 
-    safe_async_task(fn ->
-      start_last_active_maps()
-    end)
-
     {:ok,
      %{
-       garbage_collector_timer: garbage_collector_timer,
        check_maps_queue_timer: check_maps_queue_timer,
-       signatures_cleanup_timer: signatures_cleanup_timer,
        pings_cleanup_timer: pings_cleanup_timer
      }}
   end
@@ -114,48 +96,6 @@ defmodule WandererApp.Map.Manager do
   end
 
   @impl true
-  def handle_info(:garbage_collect, state) do
-    try do
-      WandererApp.Map.RegistryHelper.list_all_maps()
-      |> Enum.each(fn %{id: map_id, pid: server_pid} ->
-        case Process.alive?(server_pid) do
-          true ->
-            presence_character_ids =
-              WandererApp.Cache.lookup!("map_#{map_id}:presence_character_ids", [])
-
-            if presence_character_ids |> Enum.empty?() do
-              Logger.info("No more characters present on: #{map_id}, shutting down map server...")
-              stop_map(map_id)
-            end
-
-          false ->
-            Logger.warning("Server not alive: #{inspect(server_pid)}")
-            :ok
-        end
-      end)
-
-      {:noreply, state}
-    rescue
-      e ->
-        Logger.error(Exception.message(e))
-
-        {:noreply, state}
-    end
-  end
-
-  @impl true
-  def handle_info(:cleanup_signatures, state) do
-    try do
-      cleanup_deleted_signatures()
-      {:noreply, state}
-    rescue
-      e ->
-        Logger.error("Failed to cleanup signatures: #{inspect(e)}")
-        {:noreply, state}
-    end
-  end
-
-  @impl true
   def handle_info(:cleanup_pings, state) do
     try do
       cleanup_expired_pings()
@@ -167,23 +107,6 @@ defmodule WandererApp.Map.Manager do
     end
   end
 
-  defp cleanup_deleted_signatures() do
-    delete_after_date = DateTime.utc_now() |> DateTime.add(-1 * @delete_after_minutes, :minute)
-
-    case MapSystemSignature.by_deleted_and_updated_before!(true, delete_after_date) do
-      {:ok, deleted_signatures} ->
-        Enum.each(deleted_signatures, fn sig ->
-          Ash.destroy!(sig)
-        end)
-
-        :ok
-
-      {:error, error} ->
-        Logger.error("Failed to fetch deleted signatures: #{inspect(error)}")
-        {:error, error}
-    end
-  end
-
   defp cleanup_expired_pings() do
     delete_after_date = DateTime.utc_now() |> DateTime.add(-1 * @pings_expire_minutes, :minute)
 
@@ -192,11 +115,20 @@ defmodule WandererApp.Map.Manager do
         Enum.each(pings, fn %{id: ping_id, map_id: map_id, type: type} = ping ->
           {:ok, %{system: system}} = ping |> Ash.load([:system])
 
-          WandererApp.Map.Server.Impl.broadcast!(map_id, :ping_cancelled, %{
-            id: ping_id,
-            solar_system_id: system.solar_system_id,
-            type: type
-          })
+          # Handle case where parent system was already deleted
+          case system do
+            nil ->
+              Logger.warning(
+                "[cleanup_expired_pings] ping #{ping_id} destroyed (parent system already deleted)"
+              )
+
+            %{solar_system_id: solar_system_id} ->
+              Server.Impl.broadcast!(map_id, :ping_cancelled, %{
+                id: ping_id,
+                solar_system_id: solar_system_id,
+                type: type
+              })
+          end
 
           Ash.destroy!(ping)
         end)
@@ -209,30 +141,16 @@ defmodule WandererApp.Map.Manager do
     end
   end
 
-  defp start_last_active_maps() do
-    {:ok, last_map_states} =
-      WandererApp.Api.MapState.get_last_active(
-        DateTime.utc_now()
-        |> DateTime.add(-30, :minute)
-      )
-
-    last_map_states
-    |> Enum.map(fn %{map_id: map_id} -> map_id end)
-    |> Enum.each(fn map_id -> start_map(map_id) end)
-
-    :ok
-  end
-
   defp start_maps() do
     chunks =
       @maps_queue
       |> WandererApp.Queue.to_list!()
       |> Enum.uniq()
-      |> Enum.chunk_every(@maps_start_per_second)
+      |> Enum.chunk_every(@maps_start_chunk_size)
 
     WandererApp.Queue.clear(@maps_queue)
 
-    if Mix.env() == :test do
+    if @environment == :test do
       # In tests, run synchronously to avoid database ownership issues
       Logger.debug(fn -> "Starting maps synchronously in test mode" end)
 
@@ -273,21 +191,21 @@ defmodule WandererApp.Map.Manager do
   end
 
   defp start_map_server(map_id) do
-    case DynamicSupervisor.start_child(
-           {:via, PartitionSupervisor, {WandererApp.Map.DynamicSupervisors, self()}},
-           {ServerSupervisor, map_id: map_id}
-         ) do
-      {:ok, pid} ->
-        {:ok, pid}
+    with {:ok, started_maps} <- WandererApp.Cache.lookup("started_maps", []),
+         false <- Enum.member?(started_maps, map_id) do
+      WandererApp.Cache.insert_or_update(
+        "started_maps",
+        [map_id],
+        fn existing ->
+          [map_id | existing] |> Enum.uniq()
+        end
+      )
 
-      {:error, {:already_started, pid}} ->
-        {:ok, pid}
-
-      {:error, {:shutdown, {:failed_to_start_child, Server, {:already_started, pid}}}} ->
-        {:ok, pid}
-
-      {:error, reason} ->
-        {:error, reason}
+      WandererApp.Map.MapPoolDynamicSupervisor.start_map(map_id)
+    else
+      _error ->
+        Logger.warning("Map already started: #{map_id}")
+        :ok
     end
   end
 end

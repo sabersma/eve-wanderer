@@ -75,7 +75,7 @@ defmodule WandererAppWeb.Helpers.APIUtils do
 
   @spec parse_int(binary() | integer()) :: {:ok, integer()} | {:error, String.t()}
   def parse_int(str) when is_binary(str) do
-    Logger.debug("Parsing integer from: #{inspect(str)}")
+    Logger.debug(fn -> "Parsing integer from: #{inspect(str)}" end)
 
     case Integer.parse(str) do
       {num, ""} -> {:ok, num}
@@ -337,7 +337,7 @@ defmodule WandererAppWeb.Helpers.APIUtils do
     end
   end
 
-  defp pick_name(%{temporary_name: t, custom_name: c, name: n, solar_system_id: id} = system) do
+  defp pick_name(%{temporary_name: t, custom_name: c, name: n, solar_system_id: id} = _system) do
     original = get_original_name(id)
 
     cond do
@@ -353,7 +353,7 @@ defmodule WandererAppWeb.Helpers.APIUtils do
   def connection_to_json(conn) do
     Map.take(conn, ~w(
       id map_id solar_system_source solar_system_target mass_status
-      time_status ship_size_type type wormhole_type inserted_at updated_at
+      time_status ship_size_type type wormhole_type locked inserted_at updated_at
     )a)
   end
 end

@@ -5,17 +5,17 @@ defmodule WandererApp.Map.Server.PingsImpl do
 
   alias WandererApp.Map.Server.Impl
 
-  @ping_auto_expire_timeout :timer.minutes(15)
+  # @ping_auto_expire_timeout :timer.minutes(15) # reserved for future use
 
   def add_ping(
-        %{map_id: map_id} = state,
+        map_id,
         %{
           solar_system_id: solar_system_id,
           type: type,
           message: message,
           character_id: character_id,
           user_id: user_id
-        } = ping_info
+        } = _ping_info
       ) do
     with {:ok, character} <- WandererApp.Character.get_character(character_id),
          system <-
@@ -57,60 +57,68 @@ defmodule WandererApp.Map.Server.PingsImpl do
         map_id: map_id,
         solar_system_id: "#{solar_system_id}"
       })
-
-      state
     else
       error ->
         Logger.error("Failed to add_ping: #{inspect(error, pretty: true)}")
-        state
     end
   end
 
   def cancel_ping(
-        %{map_id: map_id} = state,
+        map_id,
         %{
           id: ping_id,
           character_id: character_id,
           user_id: user_id,
           type: type
-        } = ping_info
+        } = _ping_info
       ) do
-    with {:ok, character} <- WandererApp.Character.get_character(character_id),
-         {:ok,
-          %{system: %{id: system_id, name: system_name, solar_system_id: solar_system_id}} = ping} <-
-           WandererApp.MapPingsRepo.get_by_id(ping_id),
-         :ok <- WandererApp.MapPingsRepo.destroy(ping) do
-      Impl.broadcast!(map_id, :ping_cancelled, %{
-        id: ping_id,
-        solar_system_id: solar_system_id,
-        type: type
-      })
+    case WandererApp.MapPingsRepo.get_by_id(ping_id) do
+      {:ok,
+       %{system: %{id: system_id, name: system_name, solar_system_id: solar_system_id}} = ping} ->
+        with {:ok, character} <- WandererApp.Character.get_character(character_id),
+             :ok <- WandererApp.MapPingsRepo.destroy(ping) do
+          Impl.broadcast!(map_id, :ping_cancelled, %{
+            id: ping_id,
+            solar_system_id: solar_system_id,
+            type: type
+          })
 
-      # Broadcast rally point removal events to external clients (webhooks/SSE)
-      if type == 1 do
-        WandererApp.ExternalEvents.broadcast(map_id, :rally_point_removed, %{
-          id: ping_id,
-          solar_system_id: solar_system_id,
-          system_id: system_id,
-          character_id: character_id,
-          character_name: character.name,
-          character_eve_id: character.eve_id,
-          system_name: system_name
-        })
-      end
+          # Broadcast rally point removal events to external clients (webhooks/SSE)
+          if type == 1 do
+            WandererApp.ExternalEvents.broadcast(map_id, :rally_point_removed, %{
+              id: ping_id,
+              solar_system_id: solar_system_id,
+              system_id: system_id,
+              character_id: character_id,
+              character_name: character.name,
+              character_eve_id: character.eve_id,
+              system_name: system_name
+            })
+          end
 
-      WandererApp.User.ActivityTracker.track_map_event(:map_rally_cancelled, %{
-        character_id: character_id,
-        user_id: user_id,
-        map_id: map_id,
-        solar_system_id: solar_system_id
-      })
+          WandererApp.User.ActivityTracker.track_map_event(:map_rally_cancelled, %{
+            character_id: character_id,
+            user_id: user_id,
+            map_id: map_id,
+            solar_system_id: solar_system_id
+          })
+        else
+          error ->
+            Logger.error("Failed to destroy ping: #{inspect(error, pretty: true)}")
+        end
 
-      state
-    else
+      {:error, %Ash.Error.Query.NotFound{}} ->
+        # Ping already deleted (possibly by cascade deletion from map/system/character removal,
+        # auto-expiry, or concurrent cancellation). This is not an error - the desired state
+        # (ping is gone) is already achieved. Just broadcast the cancellation event.
+        Logger.debug(
+          "Ping #{ping_id} not found during cancellation - already deleted, skipping broadcast"
+        )
+
+        :ok
+
       error ->
-        Logger.error("Failed to cancel_ping: #{inspect(error, pretty: true)}")
-        state
+        Logger.error("Failed to fetch ping for cancellation: #{inspect(error, pretty: true)}")
     end
   end
 end

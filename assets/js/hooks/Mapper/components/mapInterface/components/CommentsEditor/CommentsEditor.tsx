@@ -3,9 +3,10 @@ import clsx from 'clsx';
 import { PrimeIcons } from 'primereact/api';
 import { MarkdownEditor } from '@/hooks/Mapper/components/mapInterface/components/MarkdownEditor';
 import { useHotkey } from '@/hooks/Mapper/hooks';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { OutCommand } from '@/hooks/Mapper/types';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import classes from './CommentsEditor.module.scss';
 
 export interface CommentsEditorProps {}
 
@@ -18,7 +19,9 @@ export const CommentsEditor = ({}: CommentsEditorProps) => {
     outCommand,
   } = useMapRootState();
 
-  const [systemId] = selectedSystems;
+  const systemId = useMemo(() => {
+    return +selectedSystems[0];
+  }, [selectedSystems]);
 
   const ref = useRef({ outCommand, systemId, textVal });
   ref.current = { outCommand, systemId, textVal };
@@ -48,6 +51,7 @@ export const CommentsEditor = ({}: CommentsEditorProps) => {
 
   return (
     <MarkdownEditor
+      className={classes.CERoot}
       value={textVal}
       onChange={setTextVal}
       overlayContent={

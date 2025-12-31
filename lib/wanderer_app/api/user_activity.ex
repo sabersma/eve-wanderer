@@ -4,7 +4,8 @@ defmodule WandererApp.Api.UserActivity do
   use Ash.Resource,
     domain: WandererApp.Api,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshJsonApi.Resource]
+    extensions: [AshJsonApi.Resource],
+    primary_read_warning?: false
 
   require Ash.Expr
 
@@ -29,6 +30,13 @@ defmodule WandererApp.Api.UserActivity do
     type "user_activities"
 
     includes([:character, :user])
+
+    default_fields([
+      :entity_id,
+      :entity_type,
+      :event_type,
+      :event_data
+    ])
 
     derive_filter?(true)
     derive_sort?(true)
@@ -55,7 +63,8 @@ defmodule WandererApp.Api.UserActivity do
       :entity_type,
       :event_type,
       :event_data,
-      :user_id
+      :user_id,
+      :character_id
     ]
 
     read :read do
@@ -70,14 +79,8 @@ defmodule WandererApp.Api.UserActivity do
     end
 
     create :new do
-      accept [:entity_id, :entity_type, :event_type, :event_data]
+      accept [:entity_id, :entity_type, :event_type, :event_data, :user_id, :character_id]
       primary?(true)
-
-      argument :user_id, :uuid, allow_nil?: true
-      argument :character_id, :uuid, allow_nil?: true
-
-      change manage_relationship(:user_id, :user, on_lookup: :relate, on_no_match: nil)
-      change manage_relationship(:character_id, :character, on_lookup: :relate, on_no_match: nil)
     end
 
     destroy :archive do
@@ -90,10 +93,12 @@ defmodule WandererApp.Api.UserActivity do
 
     attribute :entity_id, :string do
       allow_nil? false
+      public? true
     end
 
     attribute :entity_type, :atom do
       default "map"
+      public? true
 
       constraints(
         one_of: [
@@ -108,6 +113,7 @@ defmodule WandererApp.Api.UserActivity do
 
     attribute :event_type, :atom do
       default "custom"
+      public? true
 
       constraints(
         one_of: [
@@ -157,7 +163,9 @@ defmodule WandererApp.Api.UserActivity do
       allow_nil?(false)
     end
 
-    attribute :event_data, :string
+    attribute :event_data, :string do
+      public? true
+    end
 
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)

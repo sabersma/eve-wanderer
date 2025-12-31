@@ -4,8 +4,6 @@ defmodule WandererAppWeb.AdminLive do
   require Logger
   alias BetterNumber, as: Number
 
-  @invite_link_ttl :timer.hours(24)
-
   def mount(_params, %{"user_id" => user_id} = _session, socket)
       when not is_nil(user_id) do
     WandererApp.StartCorpWalletTrackerTask.maybe_start_corp_wallet_tracker(
@@ -244,7 +242,7 @@ defmodule WandererAppWeb.AdminLive do
       {:ok, _invite} ->
         {:noreply, socket |> push_patch(to: ~p"/admin")}
 
-      error ->
+      _error ->
         {:noreply, socket |> put_flash(:error, "Failed to add invite. Try again.")}
     end
   end

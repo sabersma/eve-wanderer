@@ -5,7 +5,7 @@ defmodule WandererApp.Map.Server.AclsImpl do
 
   @pubsub_client Application.compile_env(:wanderer_app, :pubsub_client)
 
-  def handle_map_acl_updated(%{map_id: map_id, map: old_map} = state, added_acls, removed_acls) do
+  def handle_map_acl_updated(map_id, added_acls, removed_acls) do
     {:ok, map} =
       WandererApp.MapRepo.get(map_id,
         acls: [
@@ -56,14 +56,21 @@ defmodule WandererApp.Map.Server.AclsImpl do
         end
       )
 
-    map_update = %{acls: map.acls, scope: map.scope}
+    map_update = %{acls: map.acls, scope: map.scope, scopes: map.scopes}
 
     WandererApp.Map.update_map(map_id, map_update)
     WandererApp.Cache.delete("map_characters-#{map_id}")
 
     broadcast_acl_updates({:ok, result}, map_id)
 
-    %{state | map: Map.merge(old_map, map_update)}
+    {:ok, %{map: old_map}} = WandererApp.Map.get_map_state(map_id)
+
+    WandererApp.Map.update_map_state(map_id, %{
+      map: Map.merge(old_map, map_update)
+    })
+
+    # Broadcast to map channel so all viewers can refresh their available characters
+    WandererApp.Map.Server.Impl.broadcast!(map_id, :acl_members_changed, %{})
   end
 
   def handle_acl_updated(map_id, acl_id) do
@@ -83,6 +90,10 @@ defmodule WandererApp.Map.Server.AclsImpl do
         acl_id
         |> update_acl()
         |> broadcast_acl_updates(map_id)
+
+      # Broadcast to map channel so all viewers can refresh their available characters
+      # This fixes the issue where users don't see newly added ACL members as available for tracking
+      WandererApp.Map.Server.Impl.broadcast!(map_id, :acl_members_changed, %{acl_id: acl_id})
     end
   end
 
@@ -104,6 +115,9 @@ defmodule WandererApp.Map.Server.AclsImpl do
       |> Map.get(:characters, [])
 
     WandererApp.Cache.insert("map_#{map_id}:invalidate_character_ids", character_ids)
+
+    # Broadcast to map channel so all viewers can refresh their available characters
+    WandererApp.Map.Server.Impl.broadcast!(map_id, :acl_members_changed, %{})
   end
 
   def track_acls([]), do: :ok
@@ -113,8 +127,18 @@ defmodule WandererApp.Map.Server.AclsImpl do
     track_acls(rest)
   end
 
-  defp track_acl(acl_id),
-    do: @pubsub_client.subscribe(WandererApp.PubSub, "acls:#{acl_id}")
+  defp track_acl(acl_id) do
+    Cachex.get_and_update(:acl_cache, acl_id, fn acl ->
+      case acl do
+        nil ->
+          @pubsub_client.subscribe(WandererApp.PubSub, "acls:#{acl_id}")
+          {:commit, acl_id}
+
+        _ ->
+          {:ignore, nil}
+      end
+    end)
+  end
 
   defp broadcast_acl_updates(
          {:ok,

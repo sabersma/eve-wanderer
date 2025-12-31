@@ -1,35 +1,48 @@
 defmodule WandererApp.Test.Mocks do
   @moduledoc """
   Mock definitions for testing.
-  These mocks are defined early in the test boot process to be available
-  when the application starts.
+  Uses private mode for async test support.
+  Each test must call setup_test_mocks() in their setup block.
   """
 
   @doc """
-  Sets up the basic mocks needed for application startup.
-  This function can be called during application startup in test environment.
+  Sets up mocks for the current test process.
+  Call this in your test setup block to claim mock ownership and set up default stubs.
+
+  ## Examples
+
+      setup do
+        WandererApp.Test.Mocks.setup_test_mocks()
+        :ok
+      end
   """
-  def setup_mocks do
-    # Ensure Mox is started
-    Application.ensure_all_started(:mox)
+  def setup_test_mocks(opts \\ []) do
+    # For integration tests that spawn processes (MapPool, etc.),
+    # we need global mode so mocks work across process boundaries
+    mode = Keyword.get(opts, :mode, :private)
 
-    # Mocks are already defined in mock_definitions.ex
-    # Here we just set up stubs for them
+    case mode do
+      :global -> Mox.set_mox_global()
+      :private -> Mox.set_mox_private()
+    end
 
-    # Set global mode for the mocks to avoid ownership issues during application startup
-    Mox.set_mox_global()
+    # Set up default stubs for this test
+    setup_default_stubs()
 
+    :ok
+  end
+
+  defp setup_default_stubs do
     # Set up default stubs for logger mock (these methods are called during application startup)
-    Test.LoggerMock
-    |> Mox.stub(:info, fn _message -> :ok end)
-    |> Mox.stub(:warning, fn _message -> :ok end)
-    |> Mox.stub(:error, fn _message -> :ok end)
-    |> Mox.stub(:debug, fn _message -> :ok end)
-
-    # Make mocks available to any spawned process
-    :persistent_term.put({Test.LoggerMock, :global_mode}, true)
-    :persistent_term.put({Test.PubSubMock, :global_mode}, true)
-    :persistent_term.put({Test.DDRTMock, :global_mode}, true)
+    # Support both 1-arity (message only) and 2-arity (message + metadata) versions
+    Mox.stub(Test.LoggerMock, :info, fn _message -> :ok end)
+    Mox.stub(Test.LoggerMock, :info, fn _message, _metadata -> :ok end)
+    Mox.stub(Test.LoggerMock, :warning, fn _message -> :ok end)
+    Mox.stub(Test.LoggerMock, :warning, fn _message, _metadata -> :ok end)
+    Mox.stub(Test.LoggerMock, :error, fn _message -> :ok end)
+    Mox.stub(Test.LoggerMock, :error, fn _message, _metadata -> :ok end)
+    Mox.stub(Test.LoggerMock, :debug, fn _message -> :ok end)
+    Mox.stub(Test.LoggerMock, :debug, fn _message, _metadata -> :ok end)
 
     # Set up default stubs for PubSub mock
     Test.PubSubMock
@@ -38,12 +51,15 @@ defmodule WandererApp.Test.Mocks do
     |> Mox.stub(:subscribe, fn _topic -> :ok end)
     |> Mox.stub(:subscribe, fn _module, _topic -> :ok end)
     |> Mox.stub(:unsubscribe, fn _topic -> :ok end)
+    |> Mox.stub(:unsubscribe, fn _server, _topic -> :ok end)
 
     # Set up default stubs for DDRT mock
     Test.DDRTMock
-    |> Mox.stub(:insert, fn _data, _tree_name -> :ok end)
-    |> Mox.stub(:update, fn _id, _data, _tree_name -> :ok end)
-    |> Mox.stub(:delete, fn _ids, _tree_name -> :ok end)
+    |> Mox.stub(:init_tree, fn _tree_name, _opts -> :ok end)
+    |> Mox.stub(:insert, fn _data, _tree_name -> {:ok, %{}} end)
+    |> Mox.stub(:update, fn _id, _data, _tree_name -> {:ok, %{}} end)
+    |> Mox.stub(:delete, fn _ids, _tree_name -> {:ok, %{}} end)
+    |> Mox.stub(:query, fn _bbox, _tree_name -> {:ok, []} end)
 
     # Set up default stubs for CachedInfo mock
     WandererApp.CachedInfo.Mock
@@ -71,10 +87,10 @@ defmodule WandererApp.Test.Mocks do
            sun_type_id: 45041
          }}
 
-      30_000_144 ->
+      30_002_187 ->
         {:ok,
          %{
-           solar_system_id: 30_000_144,
+           solar_system_id: 30_002_187,
            region_id: 10_000_043,
            constellation_id: 20_000_304,
            solar_system_name: "Amarr",
@@ -94,20 +110,56 @@ defmodule WandererApp.Test.Mocks do
            sun_type_id: 45041
          }}
 
+      30_002_659 ->
+        {:ok,
+         %{
+           solar_system_id: 30_002_659,
+           region_id: 10_000_032,
+           constellation_id: 20_000_456,
+           solar_system_name: "Dodixie",
+           solar_system_name_lc: "dodixie",
+           constellation_name: "Sinq Laison",
+           region_name: "Sinq Laison",
+           system_class: 0,
+           security: "0.9",
+           type_description: "High Security",
+           class_title: "High Sec",
+           is_shattered: false,
+           effect_name: nil,
+           effect_power: nil,
+           statics: [],
+           wandering: [],
+           triglavian_invasion_status: nil,
+           sun_type_id: 45041
+         }}
+
+      30_002_510 ->
+        {:ok,
+         %{
+           solar_system_id: 30_002_510,
+           region_id: 10_000_030,
+           constellation_id: 20_000_387,
+           solar_system_name: "Rens",
+           solar_system_name_lc: "rens",
+           constellation_name: "Frarn",
+           region_name: "Heimatar",
+           system_class: 0,
+           security: "0.9",
+           type_description: "High Security",
+           class_title: "High Sec",
+           is_shattered: false,
+           effect_name: nil,
+           effect_power: nil,
+           statics: [],
+           wandering: [],
+           triglavian_invasion_status: nil,
+           sun_type_id: 45041
+         }}
+
       _ ->
         {:error, :not_found}
     end)
 
-    :ok
-  end
-
-  @doc """
-  Sets up additional mock expectations for specific tests.
-  Call this in your test setup if you need to override the default stubs.
-  """
-  def setup_additional_expectations do
-    # Reset to global mode in case tests changed it
-    Mox.set_mox_global()
     :ok
   end
 end

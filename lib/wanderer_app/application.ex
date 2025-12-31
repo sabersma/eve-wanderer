@@ -16,15 +16,48 @@ defmodule WandererApp.Application do
       WandererApp.Vault,
       WandererApp.Repo,
       {Phoenix.PubSub, name: WandererApp.PubSub, adapter_name: Phoenix.PubSub.PG2},
+      # Multiple Finch pools for different services to prevent connection pool exhaustion
+      # ESI Character Tracking pool - high capacity for bulk character operations
+      {
+        Finch,
+        name: WandererApp.Finch.ESI.CharacterTracking,
+        pools: %{
+          default: [
+            size: Application.get_env(:wanderer_app, :finch_esi_character_pool_size, 100),
+            count: Application.get_env(:wanderer_app, :finch_esi_character_pool_count, 4)
+          ]
+        }
+      },
+      # ESI General pool - standard capacity for general ESI operations
+      {
+        Finch,
+        name: WandererApp.Finch.ESI.General,
+        pools: %{
+          default: [
+            size: Application.get_env(:wanderer_app, :finch_esi_general_pool_size, 50),
+            count: Application.get_env(:wanderer_app, :finch_esi_general_pool_count, 4)
+          ]
+        }
+      },
+      # Webhooks pool - isolated from ESI rate limits
+      {
+        Finch,
+        name: WandererApp.Finch.Webhooks,
+        pools: %{
+          default: [
+            size: Application.get_env(:wanderer_app, :finch_webhooks_pool_size, 25),
+            count: Application.get_env(:wanderer_app, :finch_webhooks_pool_count, 2)
+          ]
+        }
+      },
+      # Default pool - everything else (email, license manager, etc.)
       {
         Finch,
         name: WandererApp.Finch,
         pools: %{
           default: [
-            # number of connections per pool
-            size: 50,
-            # number of pools (so total 50 connections)
-            count: 4
+            size: Application.get_env(:wanderer_app, :finch_default_pool_size, 25),
+            count: Application.get_env(:wanderer_app, :finch_default_pool_count, 2)
           ]
         }
       },
@@ -38,7 +71,12 @@ defmodule WandererApp.Application do
       ),
       Supervisor.child_spec({Cachex, name: :ship_types_cache}, id: :ship_types_cache_worker),
       Supervisor.child_spec({Cachex, name: :character_cache}, id: :character_cache_worker),
+      Supervisor.child_spec({Cachex, name: :acl_cache}, id: :acl_cache_worker),
       Supervisor.child_spec({Cachex, name: :map_cache}, id: :map_cache_worker),
+      Supervisor.child_spec({Cachex, name: :map_pool_cache},
+        id: :map_pool_cache_worker
+      ),
+      Supervisor.child_spec({Cachex, name: :map_state_cache}, id: :map_state_cache_worker),
       Supervisor.child_spec({Cachex, name: :character_state_cache},
         id: :character_state_cache_worker
       ),
@@ -48,10 +86,7 @@ defmodule WandererApp.Application do
       Supervisor.child_spec({Cachex, name: :wanderer_app_cache},
         id: :wanderer_app_cache_worker
       ),
-      {Registry, keys: :unique, name: WandererApp.MapRegistry},
       {Registry, keys: :unique, name: WandererApp.Character.TrackerRegistry},
-      {PartitionSupervisor,
-       child_spec: DynamicSupervisor, name: WandererApp.Map.DynamicSupervisors},
       {PartitionSupervisor,
        child_spec: DynamicSupervisor, name: WandererApp.Character.DynamicSupervisors},
       WandererAppWeb.PresenceGracePeriodManager,
@@ -78,6 +113,7 @@ defmodule WandererApp.Application do
           WandererApp.Server.ServerStatusTracker,
           WandererApp.Server.TheraDataFetcher,
           {WandererApp.Character.TrackerPoolSupervisor, []},
+          {WandererApp.Map.MapPoolSupervisor, []},
           WandererApp.Character.TrackerManager,
           WandererApp.Map.Manager
         ] ++ security_audit_children
@@ -117,13 +153,16 @@ defmodule WandererApp.Application do
     :ok
   end
 
-  defp maybe_start_corp_wallet_tracker(true),
-    do: [
-      WandererApp.StartCorpWalletTrackerTask
-    ]
+  defp maybe_start_corp_wallet_tracker(true) do
+    # Don't start corp wallet tracker in test environment
+    if Application.get_env(:wanderer_app, :environment) == :test do
+      []
+    else
+      [WandererApp.StartCorpWalletTrackerTask]
+    end
+  end
 
-  defp maybe_start_corp_wallet_tracker(_),
-    do: []
+  defp maybe_start_corp_wallet_tracker(_), do: []
 
   defp maybe_start_kills_services do
     # Don't start kills services in test environment

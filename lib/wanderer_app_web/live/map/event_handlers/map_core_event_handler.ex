@@ -17,63 +17,95 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     socket
   end
 
+  def handle_server_event(%{event: :acl_members_changed, payload: _payload}, socket) do
+    # ACL members have changed - notify frontend to refresh tracking data
+    # This ensures users see newly added characters as available for tracking
+    socket
+    |> MapEventHandler.push_map_event("refresh_tracking_data", %{})
+  end
+
   def handle_server_event(
         :refresh_permissions,
         %{assigns: %{current_user: current_user, map_slug: map_slug}} = socket
       ) do
-    {:ok, %{id: map_id, user_permissions: user_permissions, owner_id: owner_id}} =
-      map_slug
-      |> WandererApp.Api.Map.get_map_by_slug!()
-      |> Ash.load(:user_permissions, actor: current_user)
+    try do
+      # Load acls with members first to avoid lateral join conflicts
+      {:ok, %{id: map_id, user_permissions: user_permissions, owner_id: owner_id}} =
+        WandererApp.MapRepo.get_by_slug_with_permissions(map_slug, current_user)
 
-    user_permissions =
-      WandererApp.Permissions.get_map_permissions(
-        user_permissions,
-        owner_id,
-        current_user.characters |> Enum.map(& &1.id)
-      )
+      user_permissions =
+        WandererApp.Permissions.get_map_permissions(
+          user_permissions,
+          owner_id,
+          current_user.characters |> Enum.map(& &1.id)
+        )
 
-    case user_permissions do
-      %{view_system: false} ->
-        socket
-        |> Phoenix.LiveView.put_flash(:error, "Your access to the map have been revoked.")
-        |> Phoenix.LiveView.push_navigate(to: ~p"/maps")
+      case user_permissions do
+        %{view_system: false} ->
+          socket
+          |> Phoenix.LiveView.put_flash(:error, "Your access to the map have been revoked.")
+          |> Phoenix.LiveView.push_navigate(to: ~p"/maps")
 
-      %{track_character: track_character} ->
-        {:ok, map_characters} =
-          case WandererApp.MapCharacterSettingsRepo.get_tracked_by_map_filtered(
-                 map_id,
-                 current_user.characters |> Enum.map(& &1.id)
-               ) do
-            {:ok, settings} ->
-              {:ok,
-               settings
-               |> Enum.map(fn s -> s |> Ash.load!(:character) |> Map.get(:character) end)}
+        %{track_character: track_character} ->
+          {:ok, map_characters} =
+            case WandererApp.MapCharacterSettingsRepo.get_tracked_by_map_filtered(
+                   map_id,
+                   current_user.characters |> Enum.map(& &1.id)
+                 ) do
+              {:ok, settings} ->
+                {:ok,
+                 settings
+                 |> Enum.map(fn s -> s |> Ash.load!(:character) |> Map.get(:character) end)}
+
+              _ ->
+                {:ok, []}
+            end
+
+          case track_character do
+            false ->
+              :ok = WandererApp.Character.TrackingUtils.untrack(map_characters, map_id, self())
 
             _ ->
-              {:ok, []}
+              :ok =
+                WandererApp.Character.TrackingUtils.track(
+                  map_characters,
+                  map_id,
+                  true,
+                  self()
+                )
           end
 
-        case track_character do
-          false ->
-            :ok = WandererApp.Character.TrackingUtils.untrack(map_characters, map_id, self())
+          socket
+          |> assign(user_permissions: user_permissions)
+          |> MapEventHandler.push_map_event(
+            "user_permissions",
+            user_permissions
+          )
+      end
+    rescue
+      error in Ash.Error.Invalid.MultipleResults ->
+        Logger.error("Multiple maps found with slug '#{map_slug}' during refresh_permissions",
+          slug: map_slug,
+          error: inspect(error)
+        )
 
-          _ ->
-            :ok =
-              WandererApp.Character.TrackingUtils.track(
-                map_characters,
-                map_id,
-                true,
-                self()
-              )
-        end
+        # Emit telemetry for monitoring
+        :telemetry.execute(
+          [:wanderer_app, :map, :duplicate_slug_detected],
+          %{count: 1},
+          %{slug: map_slug, operation: :refresh_permissions}
+        )
+
+        # Return socket unchanged - permissions won't refresh but won't crash
+        socket
+
+      error ->
+        Logger.error("Error refreshing permissions for map slug '#{map_slug}'",
+          slug: map_slug,
+          error: inspect(error)
+        )
 
         socket
-        |> assign(user_permissions: user_permissions)
-        |> MapEventHandler.push_map_event(
-          "user_permissions",
-          user_permissions
-        )
     end
   end
 
@@ -126,7 +158,6 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     |> assign(show_topup: true)
   end
 
-  @impl true
   def handle_server_event(
         {_event, {:flash, type, message}},
         socket
@@ -301,8 +332,8 @@ defmodule WandererAppWeb.MapCoreEventHandler do
   end
 
   def handle_ui_event(
-        event,
-        body,
+        _event,
+        _body,
         %{assigns: %{main_character_id: main_character_id, can_track?: true}} =
           socket
       )
@@ -328,20 +359,12 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     if actor do
       case WandererApp.Api.MapDefaultSettings.get_by_map_id(%{map_id: map_id}) do
         {:ok, [existing | _]} ->
-          result =
-            WandererApp.Api.MapDefaultSettings.update(existing, %{settings: settings},
-              actor: actor
-            )
+          WandererApp.Api.MapDefaultSettings.update(existing, %{settings: settings}, actor: actor)
 
-          result
-
-        error ->
-          result =
-            WandererApp.Api.MapDefaultSettings.create(%{map_id: map_id, settings: settings},
-              actor: actor
-            )
-
-          result
+        _error ->
+          WandererApp.Api.MapDefaultSettings.create(%{map_id: map_id, settings: settings},
+            actor: actor
+          )
       end
     else
       Logger.error("No character found for user #{current_user.id}")
@@ -411,7 +434,7 @@ defmodule WandererAppWeb.MapCoreEventHandler do
          %{
            id: current_user_id,
            characters: current_user_characters
-         } = current_user,
+         } = _current_user,
          user_permissions,
          owner_id
        ) do
@@ -512,9 +535,6 @@ defmodule WandererAppWeb.MapCoreEventHandler do
 
   defp check_map_access(_, _), do: {:error, :no_permissions}
 
-  defp setup_map_socket(socket, map_id, map_slug, map_name, init_data, only_tracked_characters) do
-  end
-
   defp handle_map_server_started(
          %{
            assigns: %{
@@ -530,7 +550,7 @@ defmodule WandererAppWeb.MapCoreEventHandler do
        ) do
     with {:ok, _} <- current_user |> WandererApp.Api.User.update_last_map(%{last_map_id: map_id}),
          {:ok, characters_limit} <- map_id |> WandererApp.Map.get_characters_limit(),
-         {:ok, present_character_ids} <-
+         {:ok, map_character_ids} <-
            WandererApp.Cache.lookup("map_#{map_id}:presence_character_ids", []) do
       events =
         case tracked_characters |> Enum.any?(&(&1.access_token == nil)) do
@@ -550,14 +570,19 @@ defmodule WandererAppWeb.MapCoreEventHandler do
             events
         end
 
-      character_limit_reached? = present_character_ids |> Enum.count() >= characters_limit
+      character_limit_reached? = map_character_ids |> Enum.count() >= characters_limit
 
       events =
         cond do
           # in case user has not tracked any character track his main character as viewer
           track_character && not has_tracked_characters? ->
             main_character = Enum.find(current_user.characters, &(&1.id == main_character_id))
-            events ++ [{:track_characters, [main_character], false}]
+
+            if main_character do
+              events ++ [{:track_characters, [main_character], false}]
+            else
+              events
+            end
 
           track_character && not character_limit_reached? ->
             events ++ [{:track_characters, tracked_characters, track_character}]
@@ -568,7 +593,12 @@ defmodule WandererAppWeb.MapCoreEventHandler do
           # in case user has view only permissions track his main character as viewer
           not track_character ->
             main_character = Enum.find(current_user.characters, &(&1.id == main_character_id))
-            events ++ [{:track_characters, [main_character], track_character}]
+
+            if main_character do
+              events ++ [{:track_characters, [main_character], track_character}]
+            else
+              events
+            end
 
           true ->
             events
@@ -597,7 +627,7 @@ defmodule WandererAppWeb.MapCoreEventHandler do
         %{
           kills: kills_data,
           present_characters:
-            present_character_ids
+            map_character_ids
             |> WandererApp.Character.get_character_eve_ids!(),
           user_characters: tracked_characters |> Enum.map(& &1.eve_id),
           system_static_infos: nil,
@@ -702,18 +732,6 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     end
 
     Process.send_after(self(), %{event: :load_map_pings}, 200)
-
-    Process.send_after(
-      self(),
-      %{
-        event: :maybe_select_system,
-        payload: %{
-          character_id: nil,
-          solar_system_id: nil
-        }
-      },
-      200
-    )
 
     if needs_tracking_setup do
       Process.send_after(self(), %{event: :show_tracking}, 10)

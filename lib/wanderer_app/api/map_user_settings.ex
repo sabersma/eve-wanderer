@@ -24,6 +24,13 @@ defmodule WandererApp.Api.MapUserSettings do
       :user
     ])
 
+    default_fields([
+      :settings,
+      :main_character_eve_id,
+      :following_character_eve_id,
+      :hubs
+    ])
+
     routes do
       base("/map_user_settings")
 
@@ -53,22 +60,30 @@ defmodule WandererApp.Api.MapUserSettings do
       :settings
     ]
 
-    defaults [:create, :read, :update, :destroy]
+    defaults [:create, :read, :destroy]
+
+    update :update do
+      require_atomic? false
+    end
 
     update :update_settings do
       accept [:settings]
+      require_atomic? false
     end
 
     update :update_main_character do
       accept [:main_character_eve_id]
+      require_atomic? false
     end
 
     update :update_following_character do
       accept [:following_character_eve_id]
+      require_atomic? false
     end
 
     update :update_hubs do
       accept [:hubs]
+      require_atomic? false
     end
   end
 
@@ -77,19 +92,22 @@ defmodule WandererApp.Api.MapUserSettings do
 
     attribute :settings, :string do
       allow_nil? true
+      public? true
     end
 
     attribute :main_character_eve_id, :string do
       allow_nil? true
+      public? true
     end
 
     attribute :following_character_eve_id, :string do
       allow_nil? true
+      public? true
     end
 
     attribute :hubs, {:array, :string} do
       allow_nil?(true)
-
+      public? true
       default([])
     end
   end

@@ -3,7 +3,7 @@ defmodule WandererAppWeb.MapRoutesEventHandler do
   use Phoenix.Component
   require Logger
 
-  alias WandererAppWeb.{MapEventHandler, MapCoreEventHandler, MapSystemsEventHandler}
+  alias WandererAppWeb.{MapEventHandler, MapCoreEventHandler}
 
   def handle_server_event(
         %{
@@ -60,7 +60,10 @@ defmodule WandererAppWeb.MapRoutesEventHandler do
 
     ping_system_ids =
       pings
-      |> Enum.map(fn %{system: %{solar_system_id: solar_system_id}} -> "#{solar_system_id}" end)
+      |> Enum.flat_map(fn
+        %{system: %{solar_system_id: solar_system_id}} -> ["#{solar_system_id}"]
+        _ -> []
+      end)
 
     route_hubs = (ping_system_ids ++ hubs) |> Enum.uniq()
 
@@ -68,7 +71,7 @@ defmodule WandererAppWeb.MapRoutesEventHandler do
 
     Task.async(fn ->
       {:ok, routes} =
-        WandererApp.Maps.find_routes(
+        WandererApp.Map.Routes.find(
           map_id,
           route_hubs,
           solar_system_id,
@@ -113,7 +116,7 @@ defmodule WandererAppWeb.MapRoutesEventHandler do
     Task.async(fn ->
       if is_subscription_active? do
         {:ok, routes} =
-          WandererApp.Maps.find_routes(
+          WandererApp.Map.Routes.find(
             map_id,
             hubs,
             solar_system_id,
@@ -165,13 +168,12 @@ defmodule WandererAppWeb.MapRoutesEventHandler do
         solar_system_id: solar_system_id
       })
 
-      {:ok, _} =
-        WandererApp.User.ActivityTracker.track_map_event(:hub_added, %{
-          character_id: main_character_id,
-          user_id: current_user.id,
-          map_id: map_id,
-          solar_system_id: solar_system_id
-        })
+      WandererApp.User.ActivityTracker.track_map_event(:hub_added, %{
+        character_id: main_character_id,
+        user_id: current_user.id,
+        map_id: map_id,
+        solar_system_id: solar_system_id
+      })
 
       {:noreply, socket}
     else
@@ -204,13 +206,12 @@ defmodule WandererAppWeb.MapRoutesEventHandler do
       solar_system_id: solar_system_id
     })
 
-    {:ok, _} =
-      WandererApp.User.ActivityTracker.track_map_event(:hub_removed, %{
-        character_id: main_character_id,
-        user_id: current_user.id,
-        map_id: map_id,
-        solar_system_id: solar_system_id
-      })
+    WandererApp.User.ActivityTracker.track_map_event(:hub_removed, %{
+      character_id: main_character_id,
+      user_id: current_user.id,
+      map_id: map_id,
+      solar_system_id: solar_system_id
+    })
 
     {:noreply, socket}
   end

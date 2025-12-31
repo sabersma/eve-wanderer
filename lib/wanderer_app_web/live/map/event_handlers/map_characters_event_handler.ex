@@ -44,6 +44,20 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
     socket
   end
 
+  # Uses the characters from the payload instead of fetching all from database
+  def handle_server_event(
+        %{event: :characters_updated, payload: %{characters: characters}},
+        socket
+      ),
+      do:
+        socket
+        |> MapEventHandler.push_map_event(
+          "characters_updated",
+          characters |> Enum.map(&map_ui_character/1)
+        )
+
+  # Legacy handler for :characters_updated without payload (backwards compatibility)
+  # This can be removed once all callers use the new batch format
   def handle_server_event(
         %{event: :characters_updated},
         %{
@@ -286,15 +300,13 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
         %{"character_eve_id" => character_eve_id},
         %{
           assigns: %{
-            map_id: map_id,
-            current_user: %{id: current_user_id}
+            map_id: _map_id,
+            current_user: %{id: _current_user_id}
           }
         } = socket
       )
       when not is_nil(character_eve_id) do
-    {:ok, character} = WandererApp.Character.get_by_eve_id("#{character_eve_id}")
-
-    WandererApp.Cache.delete("character:#{character.id}:tracking_paused")
+    {:ok, _character} = WandererApp.Character.get_by_eve_id("#{character_eve_id}")
 
     {:noreply, socket}
   end
@@ -318,7 +330,6 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
       |> Map.put(:alliance_ticker, Map.get(character, :alliance_ticker, ""))
       |> Map.put_new(:ship, WandererApp.Character.get_ship(character))
       |> Map.put_new(:location, get_location(character))
-      |> Map.put_new(:tracking_paused, character |> Map.get(:tracking_paused, false))
 
   defp get_location(character),
     do: %{
@@ -326,12 +337,6 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
       structure_id: character.structure_id,
       station_id: character.station_id
     }
-
-  defp get_map_with_acls(map_id) do
-    with {:ok, map} <- WandererApp.Api.Map.by_id(map_id) do
-      {:ok, Ash.load!(map, :acls)}
-    end
-  end
 
   def needs_tracking_setup?(
         only_tracked_characters,
@@ -365,15 +370,19 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
   end
 
   defp handle_tracking_event({:track_characters, map_characters, track_character}, socket, map_id) do
-    :ok =
-      WandererApp.Character.TrackingUtils.track(
-        map_characters,
-        map_id,
-        track_character,
-        self()
-      )
+    case WandererApp.Character.TrackingUtils.track(
+           map_characters,
+           map_id,
+           track_character,
+           self()
+         ) do
+      :ok ->
+        socket
 
-    socket
+      {:error, reason} ->
+        Logger.error("Failed to track characters: #{inspect(reason)}")
+        socket
+    end
   end
 
   defp handle_tracking_event(:invalid_token_message, socket, _map_id) do

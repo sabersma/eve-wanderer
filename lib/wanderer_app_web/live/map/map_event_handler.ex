@@ -57,7 +57,8 @@ defmodule WandererAppWeb.MapEventHandler do
     "update_system_locked",
     "update_system_tag",
     "update_system_temporary_name",
-    "update_system_status"
+    "update_system_status",
+    "manual_paste_systems_and_connections"
   ]
 
   @map_system_comments_events [
@@ -116,7 +117,8 @@ defmodule WandererAppWeb.MapEventHandler do
 
   @map_signatures_events [
     :maybe_link_signature,
-    :signatures_updated
+    :signatures_updated,
+    :remove_signatures
   ]
 
   @map_signatures_ui_events [
@@ -228,6 +230,7 @@ defmodule WandererAppWeb.MapEventHandler do
   def handle_event(socket, {:DOWN, ref, :process, _pid, reason}) when is_reference(ref) do
     # Task failed, log the error and update the client
     Logger.error("Task failed: #{inspect(reason)}")
+    socket
   end
 
   def handle_event(socket, event),
@@ -304,13 +307,13 @@ defmodule WandererAppWeb.MapEventHandler do
         } = socket,
         type,
         body
-      ) do
-    socket
-    |> Phoenix.LiveView.Utils.push_event("map_event", %{
-      type: type,
-      body: body
-    })
-  end
+      ),
+      do:
+        socket
+        |> Phoenix.LiveView.Utils.push_event("map_event", %{
+          type: type,
+          body: body
+        })
 
   def push_map_event(socket, _type, _body), do: socket
 

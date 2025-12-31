@@ -40,6 +40,7 @@ defmodule WandererAppWeb.Router do
     "https://images.evetech.net",
     "https://web.ccpgamescdn.com",
     "https://images.ctfassets.net",
+    "https://wanderer-industries.github.io",
     "https://w.appzi.io"
   ]
 
@@ -81,7 +82,8 @@ defmodule WandererAppWeb.Router do
     "allow-modals",
     "allow-same-origin",
     "allow-downloads",
-    "allow-popups"
+    "allow-popups",
+    "allow-popups-to-escape-sandbox"
   ]
 
   pipeline :admin_bauth do
@@ -200,8 +202,8 @@ defmodule WandererAppWeb.Router do
     plug WandererAppWeb.Plugs.CheckCharacterApiDisabled
   end
 
-  pipeline :api_websocket_events do
-    plug WandererAppWeb.Plugs.CheckWebsocketDisabled
+  pipeline :api_webhooks do
+    plug WandererAppWeb.Plugs.CheckWebhooksDisabled
   end
 
   pipeline :api_acl do
@@ -287,7 +289,7 @@ defmodule WandererAppWeb.Router do
 
     patch "/connections", MapConnectionAPIController, :update
     delete "/connections", MapConnectionAPIController, :delete
-    delete "/systems", MapSystemAPIController, :delete
+    delete "/systems", MapSystemAPIController, :delete_batch
     resources "/systems", MapSystemAPIController, only: [:index, :show, :create, :update, :delete]
 
     resources "/connections", MapConnectionAPIController,
@@ -301,9 +303,9 @@ defmodule WandererAppWeb.Router do
     get "/tracked-characters", MapAPIController, :show_tracked_characters
   end
 
-  # WebSocket events and webhook management endpoints (disabled by default)
+  # Webhook management endpoints (requires WANDERER_WEBHOOKS_ENABLED=true)
   scope "/api/maps/:map_identifier", WandererAppWeb do
-    pipe_through [:api, :api_map, :api_websocket_events]
+    pipe_through [:api, :api_map, :api_webhooks]
 
     get "/events", MapEventsAPIController, :list_events
 
@@ -362,24 +364,6 @@ defmodule WandererAppWeb.Router do
   #
   scope "/api", WandererAppWeb do
     pipe_through [:api]
-
-    # Basic health check for load balancers (lightweight)
-    get "/health", Api.HealthController, :health
-
-    # Detailed health status for monitoring systems
-    get "/health/status", Api.HealthController, :status
-
-    # Readiness check for deployment validation
-    get "/health/ready", Api.HealthController, :ready
-
-    # Liveness check for container orchestration
-    get "/health/live", Api.HealthController, :live
-
-    # Metrics endpoint for monitoring systems
-    get "/health/metrics", Api.HealthController, :metrics
-
-    # Deep health check for comprehensive diagnostics
-    get "/health/deep", Api.HealthController, :deep
   end
 
   # scope "/api/licenses", WandererAppWeb do
@@ -519,6 +503,9 @@ defmodule WandererAppWeb.Router do
       ] do
       live("/", AdminLive, :index)
       live("/invite", AdminLive, :add_invite_link)
+      live("/maps", AdminMapsLive, :index)
+      live("/maps/:id/edit", AdminMapsLive, :edit)
+      live("/maps/:id/acls", AdminMapsLive, :view_acls)
     end
 
     error_tracker_dashboard("/errors",
@@ -597,7 +584,7 @@ defmodule WandererAppWeb.Router do
   scope "/api/v1" do
     pipe_through :api_v1
 
-    # Custom combined endpoints
+    # Custom combined endpoint with map_id in path
     get "/maps/:map_id/systems_and_connections",
         WandererAppWeb.Api.MapSystemsConnectionsController,
         :show
@@ -605,6 +592,18 @@ defmodule WandererAppWeb.Router do
     # Forward all v1 requests to AshJsonApi router
     # This will automatically generate RESTful JSON:API endpoints
     # for all Ash resources once they're configured with the AshJsonApi extension
+    #
+    # NOTE: AshJsonApi generates flat routes (e.g., /api/v1/map_systems)
+    # Phoenix's `forward` cannot be used with dynamic path segments, so proper
+    # nested routes like /api/v1/maps/{id}/systems would require custom controllers.
+    #
+    # Current approach: Use flat routes with map_id in request body or filters:
+    #   - POST /api/v1/map_systems with {"data": {"attributes": {"map_id": "..."}}}
+    #   - GET /api/v1/map_systems?filter[map_id]=...
+    #   - PATCH /api/v1/map_systems/{id} with map_id in body
+    #
+    # Authentication is handled by CheckJsonApiAuth which validates the Bearer
+    # token against the map's API key.
     forward "/", WandererAppWeb.ApiV1Router
   end
 end

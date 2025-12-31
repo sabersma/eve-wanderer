@@ -2,6 +2,988 @@
 
 <!-- changelog -->
 
+## [v1.91.5](https://github.com/wanderer-industries/wanderer/compare/v1.91.4...v1.91.5) (2025-12-30)
+
+
+
+
+## [v1.91.4](https://github.com/wanderer-industries/wanderer/compare/v1.91.3...v1.91.4) (2025-12-30)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed connections create between k-space systems (considered as wh connection)
+
+## [v1.91.3](https://github.com/wanderer-industries/wanderer/compare/v1.91.2...v1.91.3) (2025-12-28)
+
+
+
+
+## [v1.91.2](https://github.com/wanderer-industries/wanderer/compare/v1.91.1...v1.91.2) (2025-12-27)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed map scopes updates & logic
+
+## [v1.91.1](https://github.com/wanderer-industries/wanderer/compare/v1.91.0...v1.91.1) (2025-12-25)
+
+
+
+
+## [v1.91.0](https://github.com/wanderer-industries/wanderer/compare/v1.90.13...v1.91.0) (2025-12-24)
+
+
+
+
+### Features:
+
+* admin: added maps administration view with basic info, search, restore/delete, acls view and edit options
+
+## [v1.90.13](https://github.com/wanderer-industries/wanderer/compare/v1.90.12...v1.90.13) (2025-12-19)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed welcome page
+
+## [v1.90.12](https://github.com/wanderer-industries/wanderer/compare/v1.90.11...v1.90.12) (2025-12-19)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed permissions update after character corp updates
+
+## [v1.90.11](https://github.com/wanderer-industries/wanderer/compare/v1.90.10...v1.90.11) (2025-12-18)
+
+
+
+
+## [v1.90.10](https://github.com/wanderer-industries/wanderer/compare/v1.90.9...v1.90.10) (2025-12-18)
+
+
+
+
+## [v1.90.9](https://github.com/wanderer-industries/wanderer/compare/v1.90.8...v1.90.9) (2025-12-15)
+
+
+
+
+### Bug Fixes:
+
+* core: reduce chracters untrack grace period to 15 mins (after change/close/disconnect from map)
+
+## [v1.90.8](https://github.com/wanderer-industries/wanderer/compare/v1.90.7...v1.90.8) (2025-12-15)
+
+
+
+
+### Bug Fixes:
+
+* core: skip systems or connections cleanup for not started maps
+
+## [v1.90.7](https://github.com/wanderer-industries/wanderer/compare/v1.90.6...v1.90.7) (2025-12-15)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed scopes
+
+## [v1.90.6](https://github.com/wanderer-industries/wanderer/compare/v1.90.5...v1.90.6) (2025-12-12)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed map scopes
+
+## [v1.90.5](https://github.com/wanderer-industries/wanderer/compare/v1.90.4...v1.90.5) (2025-12-12)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed map scopes
+
+## [v1.90.4](https://github.com/wanderer-industries/wanderer/compare/v1.90.3...v1.90.4) (2025-12-12)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed map scopes & signatures clean up behaviour
+
+## [v1.90.3](https://github.com/wanderer-industries/wanderer/compare/v1.90.2...v1.90.3) (2025-12-11)
+
+
+
+
+### Bug Fixes:
+
+* core: added pagination for long ACL lists
+
+## [v1.90.2](https://github.com/wanderer-industries/wanderer/compare/v1.90.1...v1.90.2) (2025-12-10)
+
+
+
+
+### Bug Fixes:
+
+* core: added system position updates to SSE
+
+## [v1.90.1](https://github.com/wanderer-industries/wanderer/compare/v1.90.0...v1.90.1) (2025-12-08)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed connections and signatures remove issues, added comprehensive audit log for auto removed connections and signatures
+
+## [v1.90.0](https://github.com/wanderer-industries/wanderer/compare/v1.89.6...v1.90.0) (2025-12-06)
+
+
+
+
+### Features:
+
+* core: Added several map scopes support (Wh, Hi, Low, Null, Pochven)
+
+### Bug Fixes:
+
+* core: fixed clean up for linked signatures
+
+* core: fixed issue with default select mode
+
+* apiV1 default fields updates
+
+## [v1.89.6](https://github.com/wanderer-industries/wanderer/compare/v1.89.5...v1.89.6) (2025-12-02)
+
+
+
+
+### Bug Fixes:
+
+* kills: fixed zkb links (added "allow-popups-to-escape-sandbox" to CSP)
+
+## [v1.89.5](https://github.com/wanderer-industries/wanderer/compare/v1.89.4...v1.89.5) (2025-12-02)
+
+
+
+
+## [v1.89.4](https://github.com/wanderer-industries/wanderer/compare/v1.89.3...v1.89.4) (2025-12-02)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed acl character update issues
+
+## [v1.89.3](https://github.com/wanderer-industries/wanderer/compare/v1.89.2...v1.89.3) (2025-11-30)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed tracking issues
+
+## [v1.89.2](https://github.com/wanderer-industries/wanderer/compare/v1.89.1...v1.89.2) (2025-11-30)
+
+
+
+
+## [v1.89.1](https://github.com/wanderer-industries/wanderer/compare/v1.89.0...v1.89.1) (2025-11-30)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed tracking issues
+
+## [v1.89.0](https://github.com/wanderer-industries/wanderer/compare/v1.88.13...v1.89.0) (2025-11-30)
+
+
+
+
+### Features:
+
+* removed unnecessary command
+
+* rework wormholes reference
+
+## [v1.88.13](https://github.com/wanderer-industries/wanderer/compare/v1.88.12...v1.88.13) (2025-11-29)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed tracking issues
+
+## [v1.88.12](https://github.com/wanderer-industries/wanderer/compare/v1.88.11...v1.88.12) (2025-11-29)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed c4 -> ns connections auto size issues
+
+## [v1.88.11](https://github.com/wanderer-industries/wanderer/compare/v1.88.10...v1.88.11) (2025-11-29)
+
+
+
+
+## [v1.88.10](https://github.com/wanderer-industries/wanderer/compare/v1.88.9...v1.88.10) (2025-11-29)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed pings cleanup
+
+## [v1.88.9](https://github.com/wanderer-industries/wanderer/compare/v1.88.8...v1.88.9) (2025-11-29)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed linked signatures cleanup
+
+## [v1.88.8](https://github.com/wanderer-industries/wanderer/compare/v1.88.7...v1.88.8) (2025-11-28)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed pings issue
+
+## [v1.88.7](https://github.com/wanderer-industries/wanderer/compare/v1.88.6...v1.88.7) (2025-11-28)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed tracking issues
+
+## [v1.88.6](https://github.com/wanderer-industries/wanderer/compare/v1.88.5...v1.88.6) (2025-11-28)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed tracking issues
+
+## [v1.88.5](https://github.com/wanderer-industries/wanderer/compare/v1.88.4...v1.88.5) (2025-11-28)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed env errors
+
+## [v1.88.4](https://github.com/wanderer-industries/wanderer/compare/v1.88.3...v1.88.4) (2025-11-27)
+
+
+
+
+### Bug Fixes:
+
+* defensive check for undefined excluded systems
+
+## [v1.88.3](https://github.com/wanderer-industries/wanderer/compare/v1.88.2...v1.88.3) (2025-11-26)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed env issues
+
+## [v1.88.1](https://github.com/wanderer-industries/wanderer/compare/v1.88.0...v1.88.1) (2025-11-26)
+
+
+
+
+### Bug Fixes:
+
+* sse enable checkbox, and kills ticker
+
+* apiv1 token auth and structure fixes
+
+* removed ipv6 distribution env settings
+
+* tests: updated tests
+
+* tests: updated tests
+
+* clean up id generation
+
+* resolve issue with async event processing
+
+## [v1.88.0](https://github.com/wanderer-industries/wanderer/compare/v1.87.0...v1.88.0) (2025-11-25)
+
+
+
+
+### Features:
+
+* Add zkb and eve who links for characters where it possibly was add
+
+## [v1.87.0](https://github.com/wanderer-industries/wanderer/compare/v1.86.1...v1.87.0) (2025-11-25)
+
+
+
+
+### Features:
+
+* Add support markdown for system description
+
+## [v1.86.1](https://github.com/wanderer-industries/wanderer/compare/v1.86.0...v1.86.1) (2025-11-25)
+
+
+
+
+### Bug Fixes:
+
+* Map: Add ability to see character passage direction in list of passages
+
+## [v1.86.0](https://github.com/wanderer-industries/wanderer/compare/v1.85.5...v1.86.0) (2025-11-25)
+
+
+
+
+### Features:
+
+* add date filter for character activity
+
+## [v1.85.5](https://github.com/wanderer-industries/wanderer/compare/v1.85.4...v1.85.5) (2025-11-24)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed connections cleanup and rally points delete issues
+
+## [v1.85.4](https://github.com/wanderer-industries/wanderer/compare/v1.85.3...v1.85.4) (2025-11-22)
+
+
+
+
+### Bug Fixes:
+
+* core: invalidate map characters every 1 hour for any missing/revoked permissions
+
+## [v1.85.3](https://github.com/wanderer-industries/wanderer/compare/v1.85.2...v1.85.3) (2025-11-22)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed connection time status issues. fixed character alliance update issues
+
+## [v1.85.2](https://github.com/wanderer-industries/wanderer/compare/v1.85.1...v1.85.2) (2025-11-20)
+
+
+
+
+### Bug Fixes:
+
+* core: increased API pool limits
+
+## [v1.85.1](https://github.com/wanderer-industries/wanderer/compare/v1.85.0...v1.85.1) (2025-11-20)
+
+
+
+
+### Bug Fixes:
+
+* core: increased API pool limits
+
+## [v1.85.0](https://github.com/wanderer-industries/wanderer/compare/v1.84.37...v1.85.0) (2025-11-19)
+
+
+
+
+### Features:
+
+* core: added support for new ship types
+
+## [v1.84.37](https://github.com/wanderer-industries/wanderer/compare/v1.84.36...v1.84.37) (2025-11-19)
+
+
+
+
+### Bug Fixes:
+
+* auth: fixed character auth issues
+
+## [v1.84.36](https://github.com/wanderer-industries/wanderer/compare/v1.84.35...v1.84.36) (2025-11-19)
+
+
+
+
+### Bug Fixes:
+
+* fixed duplicated map slugs
+
+## [v1.84.35](https://github.com/wanderer-industries/wanderer/compare/v1.84.34...v1.84.35) (2025-11-19)
+
+
+
+
+### Bug Fixes:
+
+* structure search / paste issues
+
+## [v1.84.34](https://github.com/wanderer-industries/wanderer/compare/v1.84.33...v1.84.34) (2025-11-18)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed character tracking issues
+
+## [v1.84.33](https://github.com/wanderer-industries/wanderer/compare/v1.84.32...v1.84.33) (2025-11-18)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed character tracking issues
+
+## [v1.84.32](https://github.com/wanderer-industries/wanderer/compare/v1.84.31...v1.84.32) (2025-11-18)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed character tracking issues
+
+## [v1.84.31](https://github.com/wanderer-industries/wanderer/compare/v1.84.30...v1.84.31) (2025-11-17)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed connactions validation logic
+
+## [v1.84.30](https://github.com/wanderer-industries/wanderer/compare/v1.84.29...v1.84.30) (2025-11-17)
+
+
+
+
+## [v1.84.29](https://github.com/wanderer-industries/wanderer/compare/v1.84.28...v1.84.29) (2025-11-17)
+
+
+
+
+## [v1.84.28](https://github.com/wanderer-industries/wanderer/compare/v1.84.27...v1.84.28) (2025-11-17)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed ACL updates
+
+## [v1.84.27](https://github.com/wanderer-industries/wanderer/compare/v1.84.26...v1.84.27) (2025-11-17)
+
+
+
+
+### Bug Fixes:
+
+* core: supported characters_updates for external events
+
+* core: improved character tracking
+
+* core: improved character tracking
+
+* core: improved character location tracking
+
+## [v1.84.26](https://github.com/wanderer-industries/wanderer/compare/v1.84.25...v1.84.26) (2025-11-16)
+
+
+
+
+### Bug Fixes:
+
+* core: disable character tracker pausing
+
+## [v1.84.25](https://github.com/wanderer-industries/wanderer/compare/v1.84.24...v1.84.25) (2025-11-16)
+
+
+
+
+### Bug Fixes:
+
+* core: used upsert for adding map systems
+
+## [v1.84.24](https://github.com/wanderer-industries/wanderer/compare/v1.84.23...v1.84.24) (2025-11-15)
+
+
+
+
+### Bug Fixes:
+
+* Map: Fixed problem related with error if settings was removed and mapper crashed. Fixed settings reset.
+
+## [v1.84.23](https://github.com/wanderer-industries/wanderer/compare/v1.84.22...v1.84.23) (2025-11-15)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed map pings cancel errors
+
+## [v1.84.22](https://github.com/wanderer-industries/wanderer/compare/v1.84.21...v1.84.22) (2025-11-15)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed map initialization
+
+## [v1.84.21](https://github.com/wanderer-industries/wanderer/compare/v1.84.20...v1.84.21) (2025-11-15)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed map characters adding
+
+## [v1.84.20](https://github.com/wanderer-industries/wanderer/compare/v1.84.19...v1.84.20) (2025-11-15)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed map start issues
+
+## [v1.84.19](https://github.com/wanderer-industries/wanderer/compare/v1.84.18...v1.84.19) (2025-11-14)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed map start issues
+
+## [v1.84.18](https://github.com/wanderer-industries/wanderer/compare/v1.84.17...v1.84.18) (2025-11-14)
+
+
+
+
+### Bug Fixes:
+
+* core: added gracefull map poll recovery from saved state. added map slug unique checks
+
+## [v1.84.17](https://github.com/wanderer-industries/wanderer/compare/v1.84.16...v1.84.17) (2025-11-14)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed activity tracking issues
+
+## [v1.84.16](https://github.com/wanderer-industries/wanderer/compare/v1.84.15...v1.84.16) (2025-11-13)
+
+
+
+
+### Bug Fixes:
+
+* core: removed maps auto-start logic
+
+## [v1.84.15](https://github.com/wanderer-industries/wanderer/compare/v1.84.14...v1.84.15) (2025-11-13)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed maps start/stop logic, added server downtime period support
+
+## [v1.84.14](https://github.com/wanderer-industries/wanderer/compare/v1.84.13...v1.84.14) (2025-11-13)
+
+
+
+
+### Bug Fixes:
+
+* Map: Fixed problem related with error if settings was removed and mapper crashed. Fixed settings reset.
+
+## [v1.84.13](https://github.com/wanderer-industries/wanderer/compare/v1.84.12...v1.84.13) (2025-11-13)
+
+
+
+
+## [v1.84.12](https://github.com/wanderer-industries/wanderer/compare/v1.84.11...v1.84.12) (2025-11-13)
+
+
+
+
+## [v1.84.11](https://github.com/wanderer-industries/wanderer/compare/v1.84.10...v1.84.11) (2025-11-12)
+
+
+
+
+### Bug Fixes:
+
+* api and doc updates
+
+## [v1.84.10](https://github.com/wanderer-industries/wanderer/compare/v1.84.9...v1.84.10) (2025-11-12)
+
+
+
+
+### Bug Fixes:
+
+* core: Fixed adding system on character dock
+
+## [v1.84.9](https://github.com/wanderer-industries/wanderer/compare/v1.84.8...v1.84.9) (2025-11-12)
+
+
+
+
+## [v1.84.8](https://github.com/wanderer-industries/wanderer/compare/v1.84.7...v1.84.8) (2025-11-12)
+
+
+
+
+### Bug Fixes:
+
+* core: added cleanup jobs for old system signatures & chain passages
+
+## [v1.84.7](https://github.com/wanderer-industries/wanderer/compare/v1.84.6...v1.84.7) (2025-11-12)
+
+
+
+
+### Bug Fixes:
+
+* api and structure search fixes
+
+## [v1.84.6](https://github.com/wanderer-industries/wanderer/compare/v1.84.5...v1.84.6) (2025-11-12)
+
+
+
+
+### Bug Fixes:
+
+* core: Added map slug uniqness checking while using API
+
+## [v1.84.5](https://github.com/wanderer-industries/wanderer/compare/v1.84.4...v1.84.5) (2025-11-11)
+
+
+
+
+### Bug Fixes:
+
+* core: Added tracking for map & character event handling errors
+
+## [v1.84.4](https://github.com/wanderer-industries/wanderer/compare/v1.84.3...v1.84.4) (2025-11-11)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed issue with updating system signatures
+
+## [v1.84.3](https://github.com/wanderer-industries/wanderer/compare/v1.84.2...v1.84.3) (2025-11-11)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed linked signature time status update
+
+## [v1.84.2](https://github.com/wanderer-industries/wanderer/compare/v1.84.1...v1.84.2) (2025-11-10)
+
+
+
+
+### Bug Fixes:
+
+* api: fixed  api for get/update map systems
+
+* add index for map/systems api
+
+## [v1.84.1](https://github.com/wanderer-industries/wanderer/compare/v1.84.0...v1.84.1) (2025-11-01)
+
+
+
+
+### Bug Fixes:
+
+* Core: Fixed connection time status update issue
+
+## [v1.84.0](https://github.com/wanderer-industries/wanderer/compare/v1.83.4...v1.84.0) (2025-10-29)
+
+
+
+
+### Features:
+
+* Core: ESI API rate limits support
+
+## [v1.83.4](https://github.com/wanderer-industries/wanderer/compare/v1.83.3...v1.83.4) (2025-10-29)
+
+
+
+
+### Bug Fixes:
+
+* Core: Fixed page reloads
+
+## [v1.83.3](https://github.com/wanderer-industries/wanderer/compare/v1.83.2...v1.83.3) (2025-10-27)
+
+
+
+
+### Bug Fixes:
+
+* Core: Fixed old map API for systems & added small QOL improvements
+
+## [v1.83.2](https://github.com/wanderer-industries/wanderer/compare/v1.83.1...v1.83.2) (2025-10-22)
+
+
+
+
+### Bug Fixes:
+
+* Connections: Set new connection time status based on to/from system class
+
+## [v1.83.1](https://github.com/wanderer-industries/wanderer/compare/v1.83.0...v1.83.1) (2025-10-21)
+
+
+
+
+### Bug Fixes:
+
+* Kills: Fixed zkb links (added following '/').
+
+## [v1.83.0](https://github.com/wanderer-industries/wanderer/compare/v1.82.3...v1.83.0) (2025-10-21)
+
+
+
+
+### Features:
+
+* Core: Added map roles settings for copy/paste
+
+* Core: Added map roles settings for copy/paste
+
+### Bug Fixes:
+
+* Map: Copy-Paste restriction: support from FE side - fixed problem with incorrect disabling copy and paste buttons
+
+* Map: Copy-Paste restriction: support from FE side - removed unnecessary constant
+
+* Map: Copy-Paste restriction: support from FE side
+
+* Core: Added Eve data downloaded files cleanup logic
+
+## [v1.82.3](https://github.com/wanderer-industries/wanderer/compare/v1.82.2...v1.82.3) (2025-10-21)
+
+
+
+
+### Bug Fixes:
+
+* Map: Fix system static info - add source region for U319 from Null-sec
+
+## [v1.82.2](https://github.com/wanderer-industries/wanderer/compare/v1.82.1...v1.82.2) (2025-10-21)
+
+
+
+
+### Bug Fixes:
+
+* Map: Fix system static info - for J012635 add D382; for J015092 - changed from J244, Z060 to N110, J244; for J000487 removed C008
+
+## [v1.82.1](https://github.com/wanderer-industries/wanderer/compare/v1.82.0...v1.82.1) (2025-10-20)
+
+
+
+
+### Bug Fixes:
+
+* Core: Fixed 'viewer' map access & characters tracking
+
+## [v1.82.0](https://github.com/wanderer-industries/wanderer/compare/v1.81.15...v1.82.0) (2025-10-15)
+
+
+
+
+### Features:
+
+* Core: Added an ability to copy/paste selected map area between maps
+
+### Bug Fixes:
+
+* Map: Add ability to copy and past systems (UI part)
+
+## [v1.81.15](https://github.com/wanderer-industries/wanderer/compare/v1.81.14...v1.81.15) (2025-10-15)
+
+
+
+
+### Bug Fixes:
+
+* Map: Fixed problem with commit - for correct restore deprecated data - change config key
+
+## [v1.81.14](https://github.com/wanderer-industries/wanderer/compare/v1.81.13...v1.81.14) (2025-10-15)
+
+
+
+
+### Bug Fixes:
+
+* Map: Fixed problem with commit - for correct restore deprecated data
+
+## [v1.81.13](https://github.com/wanderer-industries/wanderer/compare/v1.81.12...v1.81.13) (2025-10-15)
+
+
+
+
+### Bug Fixes:
+
+* Core: Fixed system select after tab switch
+
+## [v1.81.12](https://github.com/wanderer-industries/wanderer/compare/v1.81.11...v1.81.12) (2025-10-15)
+
+
+
+
+### Bug Fixes:
+
+* Core: Fixed map events buffering on tab switch
+
+## [v1.81.11](https://github.com/wanderer-industries/wanderer/compare/v1.81.10...v1.81.11) (2025-10-15)
+
+
+
+
+### Bug Fixes:
+
+* Signatures: Fixed EOL indication for un-splashed and signatures list
+
+## [v1.81.10](https://github.com/wanderer-industries/wanderer/compare/v1.81.9...v1.81.10) (2025-10-13)
+
+
+
+
+### Bug Fixes:
+
+* Signatures: Rework for lazy signatures deletion
+
+## [v1.81.9](https://github.com/wanderer-industries/wanderer/compare/v1.81.8...v1.81.9) (2025-10-12)
+
+
+
+
+### Bug Fixes:
+
+* Signatures: Fixed issue with wrong linked signatures deletions
+
+## [v1.81.8](https://github.com/wanderer-industries/wanderer/compare/v1.81.7...v1.81.8) (2025-10-11)
+
+
+
+
+### Bug Fixes:
+
+* Map: Fix problem with restoring settings on widgets
+
+## [v1.81.7](https://github.com/wanderer-industries/wanderer/compare/v1.81.6...v1.81.7) (2025-10-10)
+
+
+
+
+### Bug Fixes:
+
+* Map: Fixed problem with rendering dropdown classes in signatures
+
+## [v1.81.6](https://github.com/wanderer-industries/wanderer/compare/v1.81.5...v1.81.6) (2025-10-10)
+
+
+
+
+### Bug Fixes:
+
+* Map: Fixed problem with a lot unnecessary loads zkb data on resize map
+
+* Map: Added ability to see focused element
+
+* Map: Removed unnecessary vertical scroller in Character Tracking dialog. Main always first in list of tracking characters, following next after main, another characters sorting by name
+
+* Map: Added Search tool for systems what on the map
+
+* Map: Added migration mechanism
+
+* Map: Remove settings some default values if migration from very old settings system
+
+* Map: MIGRATION: support from old store settings import
+
+* Map: Add common migration mechanism. ATTENTION! This is a non-reversible stored map settings commit â it means we do not guarantee that settings will work if you check out back. Weâve tried to migrate old settings, but it may not work well or may NOT work at all.
+
+* Map: Add front-end migrations for local store settings
+
+## [v1.81.5](https://github.com/wanderer-industries/wanderer/compare/v1.81.4...v1.81.5) (2025-10-09)
+
+
+
+
+### Bug Fixes:
+
+* Core: Update connection ship size based on linked signature type
+
+## [v1.81.4](https://github.com/wanderer-industries/wanderer/compare/v1.81.3...v1.81.4) (2025-10-09)
+
+
+
+
+### Bug Fixes:
+
+* Core: Fixed signature to system link issues
+
 ## [v1.81.3](https://github.com/wanderer-industries/wanderer/compare/v1.81.2...v1.81.3) (2025-10-07)
 
 

@@ -25,13 +25,9 @@ config :wanderer_app,
   ecto_repos: [WandererApp.Repo],
   ash_domains: [WandererApp.Api],
   generators: [timestamp_type: :utc_datetime],
-  ddrt: DDRT,
+  ddrt: WandererApp.Map.CacheRTree,
   logger: Logger,
-  pubsub_client: Phoenix.PubSub,
-  wanderer_kills_base_url:
-    System.get_env("WANDERER_KILLS_BASE_URL", "ws://host.docker.internal:4004"),
-  wanderer_kills_service_enabled:
-    System.get_env("WANDERER_KILLS_SERVICE_ENABLED", "false") == "true"
+  pubsub_client: Phoenix.PubSub
 
 config :wanderer_app, WandererAppWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,

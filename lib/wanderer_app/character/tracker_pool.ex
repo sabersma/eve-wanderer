@@ -8,7 +8,8 @@ defmodule WandererApp.Character.TrackerPool do
     :tracked_ids,
     :uuid,
     :characters,
-    server_online: true
+    server_online: false,
+    last_location_duration: 0
   ]
 
   @name __MODULE__
@@ -17,14 +18,21 @@ defmodule WandererApp.Character.TrackerPool do
   @unique_registry :unique_tracker_pool_registry
 
   @update_location_interval :timer.seconds(1)
-  @update_online_interval :timer.seconds(5)
+  @update_online_interval :timer.seconds(30)
   @check_offline_characters_interval :timer.minutes(5)
-  @check_online_errors_interval :timer.minutes(1)
-  @check_ship_errors_interval :timer.minutes(1)
-  @check_location_errors_interval :timer.minutes(1)
   @update_ship_interval :timer.seconds(2)
   @update_info_interval :timer.minutes(2)
   @update_wallet_interval :timer.minutes(10)
+
+  # Per-operation concurrency limits
+  # Location updates are critical and need high concurrency (100 chars in ~200ms)
+  # Note: This is fetched at runtime since it's configured via runtime.exs
+  defp location_concurrency do
+    Application.get_env(:wanderer_app, :location_concurrency, System.schedulers_online() * 12)
+  end
+
+  # Other operations can use lower concurrency
+  @standard_concurrency System.schedulers_online() * 2
 
   @logger Application.compile_env(:wanderer_app, :logger)
 
@@ -45,10 +53,6 @@ defmodule WandererApp.Character.TrackerPool do
   def init({uuid, tracked_ids}) do
     {:ok, _} = Registry.register(@unique_registry, Module.concat(__MODULE__, uuid), tracked_ids)
     {:ok, _} = Registry.register(@registry, __MODULE__, uuid)
-
-    # Cachex.get_and_update(@cache, :tracked_characters, fn ids ->
-    #   {:commit, ids ++ tracked_ids}
-    # end)
 
     tracked_ids
     |> Enum.each(fn id ->
@@ -79,9 +83,6 @@ defmodule WandererApp.Character.TrackerPool do
       [tracked_id | r_tracked_ids]
     end)
 
-    # Cachex.get_and_update(@cache, :tracked_characters, fn ids ->
-    #   {:commit, ids ++ [tracked_id]}
-    # end)
     Cachex.put(@cache, tracked_id, uuid)
 
     {:noreply, %{state | characters: [tracked_id | characters]}}
@@ -96,10 +97,6 @@ defmodule WandererApp.Character.TrackerPool do
       r_tracked_ids |> Enum.reject(fn id -> id == tracked_id end)
     end)
 
-    # Cachex.get_and_update(@cache, :tracked_characters, fn ids ->
-    #   {:commit, ids |> Enum.reject(fn id -> id == tracked_id end)}
-    # end)
-    #
     Cachex.del(@cache, tracked_id)
 
     {:noreply, %{state | characters: characters |> Enum.reject(fn id -> id == tracked_id end)}}
@@ -120,17 +117,23 @@ defmodule WandererApp.Character.TrackerPool do
       "server_status"
     )
 
-    Process.send_after(self(), :update_online, 100)
-    Process.send_after(self(), :check_online_errors, :timer.seconds(60))
-    Process.send_after(self(), :check_ship_errors, :timer.seconds(90))
-    Process.send_after(self(), :check_location_errors, :timer.seconds(120))
+    # Stagger pool startups to distribute load across multiple pools
+    # Critical location updates get minimal stagger (0-500ms)
+    # Other operations get wider stagger (0-10s) to reduce thundering herd
+    location_stagger = :rand.uniform(500)
+    online_stagger = :rand.uniform(10_000)
+    ship_stagger = :rand.uniform(10_000)
+    info_stagger = :rand.uniform(60_000)
+
+    Process.send_after(self(), :update_online, 100 + online_stagger)
+    Process.send_after(self(), :update_location, 300 + location_stagger)
+    Process.send_after(self(), :update_ship, 500 + ship_stagger)
+    Process.send_after(self(), :update_info, 1500 + info_stagger)
     Process.send_after(self(), :check_offline_characters, @check_offline_characters_interval)
-    Process.send_after(self(), :update_location, 300)
-    Process.send_after(self(), :update_ship, 500)
-    Process.send_after(self(), :update_info, 1500)
 
     if WandererApp.Env.wallet_tracking_enabled?() do
-      Process.send_after(self(), :update_wallet, 1000)
+      wallet_stagger = :rand.uniform(120_000)
+      Process.send_after(self(), :update_wallet, 1000 + wallet_stagger)
     end
 
     {:noreply, state}
@@ -180,7 +183,7 @@ defmodule WandererApp.Character.TrackerPool do
         fn character_id ->
           WandererApp.Character.Tracker.update_online(character_id)
         end,
-        max_concurrency: System.schedulers_online() * 4,
+        max_concurrency: @standard_concurrency,
         on_timeout: :kill_task,
         timeout: :timer.seconds(5)
       )
@@ -191,6 +194,8 @@ defmodule WandererApp.Character.TrackerPool do
         [Tracker Pool] update_online => exception: #{Exception.message(e)}
         #{Exception.format_stacktrace(__STACKTRACE__)}
         """)
+
+        ErrorTracker.report(e, __STACKTRACE__)
     end
 
     {:noreply, state}
@@ -241,7 +246,7 @@ defmodule WandererApp.Character.TrackerPool do
           WandererApp.Character.Tracker.check_offline(character_id)
         end,
         timeout: :timer.seconds(15),
-        max_concurrency: System.schedulers_online() * 4,
+        max_concurrency: @standard_concurrency,
         on_timeout: :kill_task
       )
       |> Enum.each(fn
@@ -260,126 +265,6 @@ defmodule WandererApp.Character.TrackerPool do
   end
 
   def handle_info(
-        :check_online_errors,
-        %{
-          characters: characters
-        } =
-          state
-      ) do
-    Process.send_after(self(), :check_online_errors, @check_online_errors_interval)
-
-    try do
-      characters
-      |> Task.async_stream(
-        fn character_id ->
-          WandererApp.TaskWrapper.start_link(
-            WandererApp.Character.Tracker,
-            :check_online_errors,
-            [
-              character_id
-            ]
-          )
-        end,
-        timeout: :timer.seconds(15),
-        max_concurrency: System.schedulers_online() * 4,
-        on_timeout: :kill_task
-      )
-      |> Enum.each(fn
-        {:ok, _result} -> :ok
-        error -> @logger.error("Error in check_online_errors: #{inspect(error)}")
-      end)
-    rescue
-      e ->
-        Logger.error("""
-        [Tracker Pool] check_online_errors => exception: #{Exception.message(e)}
-        #{Exception.format_stacktrace(__STACKTRACE__)}
-        """)
-    end
-
-    {:noreply, state}
-  end
-
-  def handle_info(
-        :check_ship_errors,
-        %{
-          characters: characters
-        } =
-          state
-      ) do
-    Process.send_after(self(), :check_ship_errors, @check_ship_errors_interval)
-
-    try do
-      characters
-      |> Task.async_stream(
-        fn character_id ->
-          WandererApp.TaskWrapper.start_link(
-            WandererApp.Character.Tracker,
-            :check_ship_errors,
-            [
-              character_id
-            ]
-          )
-        end,
-        timeout: :timer.seconds(15),
-        max_concurrency: System.schedulers_online() * 4,
-        on_timeout: :kill_task
-      )
-      |> Enum.each(fn
-        {:ok, _result} -> :ok
-        error -> @logger.error("Error in check_ship_errors: #{inspect(error)}")
-      end)
-    rescue
-      e ->
-        Logger.error("""
-        [Tracker Pool] check_ship_errors => exception: #{Exception.message(e)}
-        #{Exception.format_stacktrace(__STACKTRACE__)}
-        """)
-    end
-
-    {:noreply, state}
-  end
-
-  def handle_info(
-        :check_location_errors,
-        %{
-          characters: characters
-        } =
-          state
-      ) do
-    Process.send_after(self(), :check_location_errors, @check_location_errors_interval)
-
-    try do
-      characters
-      |> Task.async_stream(
-        fn character_id ->
-          WandererApp.TaskWrapper.start_link(
-            WandererApp.Character.Tracker,
-            :check_location_errors,
-            [
-              character_id
-            ]
-          )
-        end,
-        timeout: :timer.seconds(15),
-        max_concurrency: System.schedulers_online() * 4,
-        on_timeout: :kill_task
-      )
-      |> Enum.each(fn
-        {:ok, _result} -> :ok
-        error -> @logger.error("Error in check_location_errors: #{inspect(error)}")
-      end)
-    rescue
-      e ->
-        Logger.error("""
-        [Tracker Pool] check_location_errors => exception: #{Exception.message(e)}
-        #{Exception.format_stacktrace(__STACKTRACE__)}
-        """)
-    end
-
-    {:noreply, state}
-  end
-
-  def handle_info(
         :update_location,
         %{
           characters: characters,
@@ -389,26 +274,52 @@ defmodule WandererApp.Character.TrackerPool do
       ) do
     Process.send_after(self(), :update_location, @update_location_interval)
 
+    start_time = System.monotonic_time(:millisecond)
+
     try do
       characters
       |> Task.async_stream(
         fn character_id ->
           WandererApp.Character.Tracker.update_location(character_id)
         end,
-        max_concurrency: System.schedulers_online() * 4,
+        max_concurrency: location_concurrency(),
         on_timeout: :kill_task,
         timeout: :timer.seconds(5)
       )
       |> Enum.each(fn _result -> :ok end)
+
+      # Emit telemetry for location update performance
+      duration = System.monotonic_time(:millisecond) - start_time
+
+      :telemetry.execute(
+        [:wanderer_app, :tracker_pool, :location_update],
+        %{duration: duration, character_count: length(characters)},
+        %{pool_uuid: state.uuid}
+      )
+
+      # Warn if location updates are falling behind (taking > 800ms for 100 chars)
+      if duration > 2000 do
+        Logger.warning(
+          "[Tracker Pool] Location updates falling behind: #{duration}ms for #{length(characters)} chars (pool: #{state.uuid})"
+        )
+
+        :telemetry.execute(
+          [:wanderer_app, :tracker_pool, :location_lag],
+          %{duration: duration, character_count: length(characters)},
+          %{pool_uuid: state.uuid}
+        )
+      end
+
+      {:noreply, %{state | last_location_duration: duration}}
     rescue
       e ->
         Logger.error("""
         [Tracker Pool] update_location => exception: #{Exception.message(e)}
         #{Exception.format_stacktrace(__STACKTRACE__)}
         """)
-    end
 
-    {:noreply, state}
+        {:noreply, state}
+    end
   end
 
   def handle_info(
@@ -424,32 +335,48 @@ defmodule WandererApp.Character.TrackerPool do
         :update_ship,
         %{
           characters: characters,
-          server_online: true
+          server_online: true,
+          last_location_duration: location_duration
         } =
           state
       ) do
     Process.send_after(self(), :update_ship, @update_ship_interval)
 
-    try do
-      characters
-      |> Task.async_stream(
-        fn character_id ->
-          WandererApp.Character.Tracker.update_ship(character_id)
-        end,
-        max_concurrency: System.schedulers_online() * 4,
-        on_timeout: :kill_task,
-        timeout: :timer.seconds(5)
+    # Backpressure: Skip ship updates if location updates are falling behind
+    if location_duration > 1000 do
+      Logger.debug(
+        "[Tracker Pool] Skipping ship update due to location lag (#{location_duration}ms)"
       )
-      |> Enum.each(fn _result -> :ok end)
-    rescue
-      e ->
-        Logger.error("""
-        [Tracker Pool] update_ship => exception: #{Exception.message(e)}
-        #{Exception.format_stacktrace(__STACKTRACE__)}
-        """)
-    end
 
-    {:noreply, state}
+      :telemetry.execute(
+        [:wanderer_app, :tracker_pool, :ship_skipped],
+        %{count: 1},
+        %{pool_uuid: state.uuid, reason: :location_lag}
+      )
+
+      {:noreply, state}
+    else
+      try do
+        characters
+        |> Task.async_stream(
+          fn character_id ->
+            WandererApp.Character.Tracker.update_ship(character_id)
+          end,
+          max_concurrency: @standard_concurrency,
+          on_timeout: :kill_task,
+          timeout: :timer.seconds(5)
+        )
+        |> Enum.each(fn _result -> :ok end)
+      rescue
+        e ->
+          Logger.error("""
+          [Tracker Pool] update_ship => exception: #{Exception.message(e)}
+          #{Exception.format_stacktrace(__STACKTRACE__)}
+          """)
+      end
+
+      {:noreply, state}
+    end
   end
 
   def handle_info(
@@ -465,35 +392,51 @@ defmodule WandererApp.Character.TrackerPool do
         :update_info,
         %{
           characters: characters,
-          server_online: true
+          server_online: true,
+          last_location_duration: location_duration
         } =
           state
       ) do
     Process.send_after(self(), :update_info, @update_info_interval)
 
-    try do
-      characters
-      |> Task.async_stream(
-        fn character_id ->
-          WandererApp.Character.Tracker.update_info(character_id)
-        end,
-        timeout: :timer.seconds(15),
-        max_concurrency: System.schedulers_online() * 4,
-        on_timeout: :kill_task
+    # Backpressure: Skip info updates if location updates are severely falling behind
+    if location_duration > 1500 do
+      Logger.debug(
+        "[Tracker Pool] Skipping info update due to location lag (#{location_duration}ms)"
       )
-      |> Enum.each(fn
-        {:ok, _result} -> :ok
-        error -> Logger.error("Error in update_info: #{inspect(error)}")
-      end)
-    rescue
-      e ->
-        Logger.error("""
-        [Tracker Pool] update_info => exception: #{Exception.message(e)}
-        #{Exception.format_stacktrace(__STACKTRACE__)}
-        """)
-    end
 
-    {:noreply, state}
+      :telemetry.execute(
+        [:wanderer_app, :tracker_pool, :info_skipped],
+        %{count: 1},
+        %{pool_uuid: state.uuid, reason: :location_lag}
+      )
+
+      {:noreply, state}
+    else
+      try do
+        characters
+        |> Task.async_stream(
+          fn character_id ->
+            WandererApp.Character.Tracker.update_info(character_id)
+          end,
+          timeout: :timer.seconds(15),
+          max_concurrency: @standard_concurrency,
+          on_timeout: :kill_task
+        )
+        |> Enum.each(fn
+          {:ok, _result} -> :ok
+          error -> Logger.error("Error in update_info: #{inspect(error)}")
+        end)
+      rescue
+        e ->
+          Logger.error("""
+          [Tracker Pool] update_info => exception: #{Exception.message(e)}
+          #{Exception.format_stacktrace(__STACKTRACE__)}
+          """)
+      end
+
+      {:noreply, state}
+    end
   end
 
   def handle_info(
@@ -522,7 +465,7 @@ defmodule WandererApp.Character.TrackerPool do
           WandererApp.Character.Tracker.update_wallet(character_id)
         end,
         timeout: :timer.minutes(5),
-        max_concurrency: System.schedulers_online() * 4,
+        max_concurrency: @standard_concurrency,
         on_timeout: :kill_task
       )
       |> Enum.each(fn
@@ -580,9 +523,5 @@ defmodule WandererApp.Character.TrackerPool do
       error ->
         Logger.debug("Failed to monitor message queue: #{inspect(error)}")
     end
-  end
-
-  defp via_tuple(uuid) do
-    {:via, Registry, {@unique_registry, Module.concat(__MODULE__, uuid)}}
   end
 end

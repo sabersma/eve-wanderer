@@ -1,4 +1,4 @@
-import { CommentType, PingData, SystemSignature, UserPermissions } from '@/hooks/Mapper/types';
+import { CommentType, MapOptions, PingData, SystemSignature, UserPermissions } from '@/hooks/Mapper/types';
 import { ActivitySummary, CharacterTypeRaw, TrackingCharacter } from '@/hooks/Mapper/types/character.ts';
 import { SolarSystemConnection } from '@/hooks/Mapper/types/connection.ts';
 import { DetailedKill, Kill } from '@/hooks/Mapper/types/kills.ts';
@@ -38,6 +38,7 @@ export enum Commands {
   updateTracking = 'update_tracking',
   userSettingsUpdated = 'user_settings_updated',
   showTracking = 'show_tracking',
+  refreshTrackingData = 'refresh_tracking_data',
   pingAdded = 'ping_added',
   pingCancelled = 'ping_cancelled',
 }
@@ -74,6 +75,7 @@ export type Command =
   | Commands.updateActivity
   | Commands.updateTracking
   | Commands.showTracking
+  | Commands.refreshTrackingData
   | Commands.pingAdded
   | Commands.pingCancelled;
 
@@ -94,7 +96,7 @@ export type CommandInit = {
   hubs: string[];
   user_hubs: string[];
   routes: RoutesList;
-  options: Record<string, string | boolean>;
+  options: MapOptions;
   reset?: boolean;
   is_subscription_active?: boolean;
   main_character_eve_id?: string | null;
@@ -131,7 +133,7 @@ export type CommandLinkSignatureToSystem = {
 };
 export type CommandLinkSignaturesUpdated = number;
 export type CommandCommentAdd = {
-  solarSystemId: string;
+  solarSystemId: number;
   comment: CommentType;
 };
 export type CommandCommentRemoved = {
@@ -145,6 +147,7 @@ export type CommandUserSettingsUpdated = {
 };
 
 export type CommandShowTracking = null;
+export type CommandRefreshTrackingData = Record<string, never>;
 export type CommandUpdateActivity = {
   characterId: number;
   systemId: number;
@@ -206,6 +209,7 @@ export interface CommandData {
   [Commands.systemCommentRemoved]: CommandCommentRemoved;
   [Commands.systemCommentsUpdated]: unknown;
   [Commands.showTracking]: CommandShowTracking;
+  [Commands.refreshTrackingData]: CommandRefreshTrackingData;
   [Commands.pingAdded]: CommandPingAdded;
   [Commands.pingCancelled]: CommandPingCancelled;
 }
@@ -247,6 +251,7 @@ export enum OutCommand {
   deleteSystems = 'delete_systems',
   manualAddSystem = 'manual_add_system',
   manualAddConnection = 'manual_add_connection',
+  manualPasteSystemsAndConnections = 'manual_paste_systems_and_connections',
   manualDeleteConnection = 'manual_delete_connection',
   setAutopilotWaypoint = 'set_autopilot_waypoint',
   addSystem = 'add_system',

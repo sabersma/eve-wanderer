@@ -92,6 +92,31 @@ map_subscription_extra_hubs_10_price =
   config_dir
   |> get_int_from_path_or_env("WANDERER_MAP_SUBSCRIPTION_EXTRA_HUBS_10_PRICE", 10_000_000)
 
+# Parse promo codes from environment variable
+# Format: "CODE1:10,CODE2:20" where numbers are discount percentages
+promo_codes =
+  config_dir
+  |> get_var_from_path_or_env("WANDERER_PROMO_CODES", "")
+  |> case do
+    "" ->
+      %{}
+
+    codes_string ->
+      codes_string
+      |> String.split(",")
+      |> Enum.map(fn entry ->
+        case String.split(String.trim(entry), ":") do
+          [code, discount] ->
+            {String.upcase(String.trim(code)), String.to_integer(String.trim(discount))}
+
+          _ ->
+            nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Map.new()
+  end
+
 map_connection_auto_expire_hours =
   config_dir
   |> get_int_from_path_or_env("WANDERER_MAP_CONNECTION_AUTO_EXPIRE_HOURS", 24)
@@ -176,8 +201,36 @@ config :wanderer_app,
       }
     ],
     extra_characters_50: map_subscription_extra_characters_50_price,
-    extra_hubs_10: map_subscription_extra_hubs_10_price
-  }
+    extra_hubs_10: map_subscription_extra_hubs_10_price,
+    promo_codes: promo_codes
+  },
+  # Finch pool configuration - separate pools for different services
+  # ESI Character Tracking pool - high capacity for bulk character operations
+  # With 30+ TrackerPools × ~100 concurrent tasks, need large pool
+  finch_esi_character_pool_size:
+    System.get_env("WANDERER_FINCH_ESI_CHARACTER_POOL_SIZE", "200") |> String.to_integer(),
+  finch_esi_character_pool_count:
+    System.get_env("WANDERER_FINCH_ESI_CHARACTER_POOL_COUNT", "4") |> String.to_integer(),
+  # ESI General pool - standard capacity for general ESI operations
+  finch_esi_general_pool_size:
+    System.get_env("WANDERER_FINCH_ESI_GENERAL_POOL_SIZE", "50") |> String.to_integer(),
+  finch_esi_general_pool_count:
+    System.get_env("WANDERER_FINCH_ESI_GENERAL_POOL_COUNT", "4") |> String.to_integer(),
+  # Webhooks pool - isolated from ESI rate limits
+  finch_webhooks_pool_size:
+    System.get_env("WANDERER_FINCH_WEBHOOKS_POOL_SIZE", "25") |> String.to_integer(),
+  finch_webhooks_pool_count:
+    System.get_env("WANDERER_FINCH_WEBHOOKS_POOL_COUNT", "2") |> String.to_integer(),
+  # Default pool - everything else (email, license manager, etc.)
+  finch_default_pool_size:
+    System.get_env("WANDERER_FINCH_DEFAULT_POOL_SIZE", "25") |> String.to_integer(),
+  finch_default_pool_count:
+    System.get_env("WANDERER_FINCH_DEFAULT_POOL_COUNT", "2") |> String.to_integer(),
+  # Character tracker concurrency settings
+  # Location updates need high concurrency for <2s response with 3000+ characters
+  location_concurrency:
+    System.get_env("WANDERER_LOCATION_CONCURRENCY", "#{System.schedulers_online() * 12}")
+    |> String.to_integer()
 
 config :ueberauth, Ueberauth,
   providers: [
@@ -237,7 +290,7 @@ config :logger,
         case config_env() do
           :prod -> "info"
           :dev -> "info"
-          :test -> "debug"
+          :test -> "warning"
         end
       )
     )
@@ -258,7 +311,9 @@ config :wanderer_app, WandererApp.Scheduler,
   timezone: :utc,
   jobs:
     [
-      {"@daily", {WandererApp.Map.Audit, :archive, []}}
+      {"@daily", {WandererApp.Map.Audit, :archive, []}},
+      {"@daily", {WandererApp.Map.GarbageCollector, :cleanup_chain_passages, []}},
+      {"@daily", {WandererApp.Map.GarbageCollector, :cleanup_system_signatures, []}}
     ] ++ sheduler_jobs,
   timeout: :infinity
 
@@ -403,7 +458,7 @@ config :wanderer_app, :license_manager,
 config :wanderer_app, :sse,
   enabled:
     config_dir
-    |> get_var_from_path_or_env("WANDERER_SSE_ENABLED", "true")
+    |> get_var_from_path_or_env("WANDERER_SSE_ENABLED", "false")
     |> String.to_existing_atom(),
   max_connections_total:
     config_dir |> get_int_from_path_or_env("WANDERER_SSE_MAX_CONNECTIONS", 1000),
@@ -418,6 +473,6 @@ config :wanderer_app, :sse,
 config :wanderer_app, :external_events,
   webhooks_enabled:
     config_dir
-    |> get_var_from_path_or_env("WANDERER_WEBHOOKS_ENABLED", "true")
+    |> get_var_from_path_or_env("WANDERER_WEBHOOKS_ENABLED", "false")
     |> String.to_existing_atom(),
   webhook_timeout_ms: config_dir |> get_int_from_path_or_env("WANDERER_WEBHOOK_TIMEOUT_MS", 15000)

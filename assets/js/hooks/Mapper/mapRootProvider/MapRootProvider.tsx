@@ -6,9 +6,11 @@ import {
   MapUnionTypes,
   OutCommandHandler,
   SolarSystemConnection,
+  StringBoolean,
   TrackingCharacter,
   UseCharactersCacheData,
   UseCommentsData,
+  UserPermission,
 } from '@/hooks/Mapper/types';
 import { useCharactersCache, useComments, useMapRootHandlers } from '@/hooks/Mapper/mapRootProvider/hooks';
 import { WithChildren } from '@/hooks/Mapper/types/common.ts';
@@ -23,12 +25,14 @@ import {
   InterfaceStoredSettings,
   KillsWidgetSettings,
   LocalWidgetSettings,
+  MapSettings,
   MapUserSettings,
   OnTheMapSettingsType,
   RoutesType,
 } from '@/hooks/Mapper/mapRootProvider/types.ts';
 import {
   DEFAULT_KILLS_WIDGET_SETTINGS,
+  DEFAULT_MAP_SETTINGS,
   DEFAULT_ON_THE_MAP_SETTINGS,
   DEFAULT_ROUTES_SETTINGS,
   DEFAULT_WIDGET_LOCAL_SETTINGS,
@@ -78,7 +82,16 @@ const INITIAL_DATA: MapRootData = {
   selectedSystems: [],
   selectedConnections: [],
   userPermissions: {},
-  options: {},
+  options: {
+    allowed_copy_for: UserPermission.VIEW_SYSTEM,
+    allowed_paste_for: UserPermission.VIEW_SYSTEM,
+    layout: '',
+    restrict_offline_showing: 'false',
+    show_linked_signature_id: 'false',
+    show_linked_signature_id_temp_name: 'false',
+    show_temp_system_name: 'false',
+    store_custom_labels: 'false',
+  },
   isSubscriptionActive: false,
   linkSignatureToSystem: null,
   mainCharacterEveId: null,
@@ -127,11 +140,13 @@ export interface MapRootContextProps {
     settingsOnTheMapUpdate: Dispatch<SetStateAction<OnTheMapSettingsType>>;
     settingsKills: KillsWidgetSettings;
     settingsKillsUpdate: Dispatch<SetStateAction<KillsWidgetSettings>>;
+    mapSettings: MapSettings;
+    mapSettingsUpdate: Dispatch<SetStateAction<MapSettings>>;
     isReady: boolean;
     hasOldSettings: boolean;
     getSettingsForExport(): string | undefined;
     applySettings(settings: MapUserSettings): boolean;
-    resetSettings(settings: MapUserSettings): void;
+    resetSettings(): void;
     checkOldSettings(): void;
   };
 }
@@ -172,6 +187,8 @@ const MapRootContext = createContext<MapRootContextProps>({
     settingsOnTheMapUpdate: () => null,
     settingsKills: DEFAULT_KILLS_WIDGET_SETTINGS,
     settingsKillsUpdate: () => null,
+    mapSettings: DEFAULT_MAP_SETTINGS,
+    mapSettingsUpdate: () => null,
     isReady: false,
     hasOldSettings: false,
     getSettingsForExport: () => '',

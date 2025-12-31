@@ -46,7 +46,7 @@ defmodule WandererApp.Kills.MapEventListener do
   end
 
   @impl true
-  def handle_info(%{event: :map_server_started, payload: map_info}, state) do
+  def handle_info(%{event: :map_server_started, payload: _map_info}, state) do
     {:noreply, schedule_subscription_update(state)}
   end
 
@@ -109,8 +109,8 @@ defmodule WandererApp.Kills.MapEventListener do
 
   # Handle re-subscription attempt
   def handle_info(:resubscribe_to_maps, state) do
-    running_maps = WandererApp.Map.RegistryHelper.list_all_maps()
-    current_running_map_ids = MapSet.new(Enum.map(running_maps, & &1.id))
+    {:ok, started_maps} = WandererApp.Cache.lookup("started_maps", [])
+    current_running_map_ids = MapSet.new(started_maps)
 
     Logger.debug(fn ->
       "[MapEventListener] Resubscribing to maps. Running maps: #{MapSet.size(current_running_map_ids)}"
@@ -191,7 +191,7 @@ defmodule WandererApp.Kills.MapEventListener do
             # Client is not connected, retry with backoff
             schedule_retry_update(state)
 
-          error ->
+          _error ->
             schedule_retry_update(state)
         end
       rescue
@@ -229,7 +229,7 @@ defmodule WandererApp.Kills.MapEventListener do
       {:error, :not_running} ->
         {:error, :not_running}
 
-      {:ok, status} ->
+      {:ok, _status} ->
         {:error, :not_connected}
 
       error ->

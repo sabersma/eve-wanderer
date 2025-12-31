@@ -52,21 +52,23 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
           socket
       )
       when not is_nil(main_character_id) do
+    solar_system_source_id_int = String.to_integer(solar_system_source_id)
+    solar_system_target_id_int = String.to_integer(solar_system_target_id)
+
     map_id
     |> WandererApp.Map.Server.add_connection(%{
-      solar_system_source_id: solar_system_source_id |> String.to_integer(),
-      solar_system_target_id: solar_system_target_id |> String.to_integer(),
+      solar_system_source_id: solar_system_source_id_int,
+      solar_system_target_id: solar_system_target_id_int,
       character_id: main_character_id
     })
 
-    {:ok, _} =
-      WandererApp.User.ActivityTracker.track_map_event(:map_connection_added, %{
-        character_id: main_character_id,
-        user_id: current_user_id,
-        map_id: map_id,
-        solar_system_source_id: "#{solar_system_source_id}" |> String.to_integer(),
-        solar_system_target_id: "#{solar_system_target_id}" |> String.to_integer()
-      })
+    WandererApp.User.ActivityTracker.track_map_event(:map_connection_added, %{
+      character_id: main_character_id,
+      user_id: current_user_id,
+      map_id: map_id,
+      solar_system_source_id: solar_system_source_id_int,
+      solar_system_target_id: solar_system_target_id_int
+    })
 
     {:noreply, socket}
   end
@@ -102,6 +104,12 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
       |> WandererApp.MapUserSettingsRepo.get_boolean_setting("delete_connection_with_sigs")
 
     if delete_connection_with_sigs do
+      source_system =
+        WandererApp.Map.find_system_by_location(
+          map_id,
+          %{solar_system_id: solar_system_source_id}
+        )
+
       target_system =
         WandererApp.Map.find_system_by_location(
           map_id,
@@ -112,7 +120,16 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
         {:ok, signatures} =
           WandererApp.Api.MapSystemSignature.by_linked_system_id(solar_system_target_id)
 
-        signatures
+        filtered_signatures =
+          signatures
+          |> Enum.filter(fn s ->
+            s.system_id == source_system.id
+          end)
+
+        # Collect eve_ids for audit logging
+        deleted_eve_ids = Enum.map(filtered_signatures, & &1.eve_id)
+
+        filtered_signatures
         |> Enum.each(fn s ->
           if not is_nil(s.temporary_name) && s.temporary_name == target_system.temporary_name do
             map_id
@@ -132,6 +149,17 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
           |> WandererApp.Api.MapSystemSignature.destroy!()
         end)
 
+        # Audit log signatures deleted with connection
+        if deleted_eve_ids != [] do
+          WandererApp.User.ActivityTracker.track_map_event(:signatures_removed, %{
+            character_id: main_character_id,
+            user_id: current_user_id,
+            map_id: map_id,
+            solar_system_id: solar_system_source_id,
+            signatures: deleted_eve_ids
+          })
+        end
+
         WandererApp.Map.Server.Impl.broadcast!(
           map_id,
           :signatures_updated,
@@ -140,14 +168,13 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
       end
     end
 
-    {:ok, _} =
-      WandererApp.User.ActivityTracker.track_map_event(:map_connection_removed, %{
-        character_id: main_character_id,
-        user_id: current_user_id,
-        map_id: map_id,
-        solar_system_source_id: solar_system_source_id,
-        solar_system_target_id: solar_system_target_id
-      })
+    WandererApp.User.ActivityTracker.track_map_event(:map_connection_removed, %{
+      character_id: main_character_id,
+      user_id: current_user_id,
+      map_id: map_id,
+      solar_system_source_id: solar_system_source_id,
+      solar_system_target_id: solar_system_target_id
+    })
 
     {:noreply, socket}
   end
@@ -193,22 +220,24 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
         _ -> nil
       end
 
-    {:ok, _} =
-      WandererApp.User.ActivityTracker.track_map_event(:map_connection_updated, %{
-        character_id: main_character_id,
-        user_id: current_user_id,
-        map_id: map_id,
-        solar_system_source_id: "#{solar_system_source_id}" |> String.to_integer(),
-        solar_system_target_id: "#{solar_system_target_id}" |> String.to_integer(),
-        key: key_atom,
-        value: value
-      })
+    solar_system_source_id_int = String.to_integer(solar_system_source_id)
+    solar_system_target_id_int = String.to_integer(solar_system_target_id)
+
+    WandererApp.User.ActivityTracker.track_map_event(:map_connection_updated, %{
+      character_id: main_character_id,
+      user_id: current_user_id,
+      map_id: map_id,
+      solar_system_source_id: solar_system_source_id_int,
+      solar_system_target_id: solar_system_target_id_int,
+      key: key_atom,
+      value: value
+    })
 
     apply(WandererApp.Map.Server, method_atom, [
       map_id,
       %{
-        solar_system_source_id: "#{solar_system_source_id}" |> String.to_integer(),
-        solar_system_target_id: "#{solar_system_target_id}" |> String.to_integer()
+        solar_system_source_id: solar_system_source_id_int,
+        solar_system_target_id: solar_system_target_id_int
       }
       |> Map.put_new(key_atom, value)
     ])
@@ -262,8 +291,8 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
   defp get_connection_info(map_id, from, to) do
     map_id
     |> WandererApp.Map.Server.get_connection_info(%{
-      solar_system_source_id: "#{from}" |> String.to_integer(),
-      solar_system_target_id: "#{to}" |> String.to_integer()
+      solar_system_source_id: String.to_integer(from),
+      solar_system_target_id: String.to_integer(to)
     })
     |> case do
       {:ok, info} ->

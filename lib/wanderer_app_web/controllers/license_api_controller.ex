@@ -103,8 +103,8 @@ defmodule WandererAppWeb.LicenseApiController do
   }
   ```
   """
-  def update_validity(conn, %{"id" => license_id, "is_valid" => is_valid}) do
-    with {:ok, license} <- License.by_id(license_id),
+  def update_validity(conn, %{"id" => license_id}) do
+    with {:ok, _license} <- License.by_id(license_id),
          {:ok, updated_license} <- LicenseManager.invalidate_license(license_id) do
       conn
       |> json(format_license(updated_license))
@@ -121,12 +121,6 @@ defmodule WandererAppWeb.LicenseApiController do
         |> put_status(:internal_server_error)
         |> json(%{error: "Failed to update license validity"})
     end
-  end
-
-  def update_validity(conn, %{"id" => _license_id}) do
-    conn
-    |> put_status(:bad_request)
-    |> json(%{error: "Missing required parameter: is_valid"})
   end
 
   @doc """

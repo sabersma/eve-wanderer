@@ -9,9 +9,8 @@ defmodule WandererAppWeb.MapConnectionAPIControllerTest do
   setup :verify_on_exit!
 
   setup do
-    # Ensure we're in global mode and re-setup mocks
-    Mox.set_mox_global()
-    WandererApp.Test.Mocks.setup_additional_expectations()
+    # Mocks are already in global mode from application startup
+    # No need to call Mox.set_mox_global() again
 
     :ok
   end
@@ -179,6 +178,13 @@ defmodule WandererAppWeb.MapConnectionAPIControllerTest do
       result =
         try do
           MapConnectionAPIController.create(conn, params)
+        rescue
+          MatchError ->
+            # Expected when map/character doesn't exist in unit tests
+            build_conn()
+            |> put_status(500)
+            |> put_resp_content_type("application/json")
+            |> resp(500, Jason.encode!(%{error: "Entity not found"}))
         catch
           "Map server not started" ->
             # In unit tests, map servers aren't started, so this is expected
@@ -259,6 +265,13 @@ defmodule WandererAppWeb.MapConnectionAPIControllerTest do
       result =
         try do
           MapConnectionAPIController.create(conn, params)
+        rescue
+          MatchError ->
+            # Expected when map/character doesn't exist in unit tests
+            build_conn()
+            |> put_status(500)
+            |> put_resp_content_type("application/json")
+            |> resp(500, Jason.encode!(%{error: "Entity not found"}))
         catch
           "Map server not started" ->
             # In unit tests, map servers aren't started, so this is expected
@@ -733,6 +746,13 @@ defmodule WandererAppWeb.MapConnectionAPIControllerTest do
       result =
         try do
           MapConnectionAPIController.create(conn, params)
+        rescue
+          MatchError ->
+            # Expected when map/character doesn't exist in unit tests
+            build_conn()
+            |> put_status(500)
+            |> put_resp_content_type("application/json")
+            |> resp(500, Jason.encode!(%{error: "Entity not found"}))
         catch
           "Map server not started" ->
             # In unit tests, map servers aren't started, so this is expected

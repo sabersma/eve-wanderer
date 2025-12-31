@@ -7,7 +7,8 @@ defmodule WandererApp.EveDataService do
 
   alias WandererApp.Utils.JSONUtil
 
-  @eve_db_dump_url "https://www.fuzzwork.co.uk/dump/latest"
+  # @eve_db_dump_url "https://www.fuzzwork.co.uk/dump/latest"
+  @eve_db_dump_url "https://wanderer-industries.github.io/wanderer-assets/sde-files"
 
   @dump_file_names [
     "invGroups.csv",
@@ -38,32 +39,8 @@ defmodule WandererApp.EveDataService do
     |> Ash.bulk_create(WandererApp.Api.MapSolarSystemJumps, :create)
 
     Logger.info("MapSolarSystemJumps updated!")
-  end
 
-  def download_files() do
-    tasks =
-      @dump_file_names
-      |> Enum.map(fn file_name ->
-        Task.async(fn ->
-          download_file(file_name)
-        end)
-      end)
-
-    Task.await_many(tasks, :timer.minutes(30))
-  end
-
-  def download_file(file_name) do
-    url = "#{@eve_db_dump_url}/#{file_name}"
-    Logger.info("Downloading file from #{url}")
-
-    download_path = Path.join([:code.priv_dir(:wanderer_app), "repo", "data", file_name])
-
-    Req.get!(url, raw: true, into: File.stream!(download_path, [:write])).body
-    |> Stream.run()
-
-    Logger.info("File downloaded successfully to #{download_path}")
-
-    :ok
+    cleanup_files()
   end
 
   def load_wormhole_types() do
@@ -163,7 +140,57 @@ defmodule WandererApp.EveDataService do
     data
   end
 
-  def load_map_constellations() do
+  defp cleanup_files() do
+    tasks =
+      @dump_file_names
+      |> Enum.map(fn file_name ->
+        Task.async(fn ->
+          cleanup_file(file_name)
+        end)
+      end)
+
+    Task.await_many(tasks, :timer.minutes(30))
+  end
+
+  defp cleanup_file(file_name) do
+    Logger.info("Cleaning file: #{file_name}")
+
+    download_path = Path.join([:code.priv_dir(:wanderer_app), "repo", "data", file_name])
+
+    :ok = File.rm(download_path)
+
+    Logger.info("File removed successfully to #{download_path}")
+
+    :ok
+  end
+
+  defp download_files() do
+    tasks =
+      @dump_file_names
+      |> Enum.map(fn file_name ->
+        Task.async(fn ->
+          download_file(file_name)
+        end)
+      end)
+
+    Task.await_many(tasks, :timer.minutes(30))
+  end
+
+  defp download_file(file_name) do
+    url = "#{@eve_db_dump_url}/#{file_name}"
+    Logger.info("Downloading file from #{url}")
+
+    download_path = Path.join([:code.priv_dir(:wanderer_app), "repo", "data", file_name])
+
+    Req.get!(url, raw: true, into: File.stream!(download_path, [:write])).body
+    |> Stream.run()
+
+    Logger.info("File downloaded successfully to #{download_path}")
+
+    :ok
+  end
+
+  defp load_map_constellations() do
     WandererApp.Utils.CSVUtil.csv_row_to_table_record(
       "#{:code.priv_dir(:wanderer_app)}/repo/data/mapConstellations.csv",
       fn row ->
@@ -175,7 +202,7 @@ defmodule WandererApp.EveDataService do
     )
   end
 
-  def load_map_regions() do
+  defp load_map_regions() do
     WandererApp.Utils.CSVUtil.csv_row_to_table_record(
       "#{:code.priv_dir(:wanderer_app)}/repo/data/mapRegions.csv",
       fn row ->
@@ -187,7 +214,7 @@ defmodule WandererApp.EveDataService do
     )
   end
 
-  def load_map_location_wormhole_classes() do
+  defp load_map_location_wormhole_classes() do
     WandererApp.Utils.CSVUtil.csv_row_to_table_record(
       "#{:code.priv_dir(:wanderer_app)}/repo/data/mapLocationWormholeClasses.csv",
       fn row ->
@@ -199,7 +226,7 @@ defmodule WandererApp.EveDataService do
     )
   end
 
-  def load_inv_groups() do
+  defp load_inv_groups() do
     WandererApp.Utils.CSVUtil.csv_row_to_table_record(
       "#{:code.priv_dir(:wanderer_app)}/repo/data/invGroups.csv",
       fn row ->
@@ -212,7 +239,7 @@ defmodule WandererApp.EveDataService do
     )
   end
 
-  def get_db_data() do
+  defp get_db_data() do
     map_constellations = load_map_constellations()
     map_regions = load_map_regions()
     map_location_wormhole_classes = load_map_location_wormhole_classes()
@@ -296,7 +323,7 @@ defmodule WandererApp.EveDataService do
     )
   end
 
-  def get_ship_types_data() do
+  defp get_ship_types_data() do
     inv_groups = load_inv_groups()
 
     ship_type_groups =
@@ -331,7 +358,7 @@ defmodule WandererApp.EveDataService do
     |> Enum.filter(fn t -> t.group_id in ship_type_groups end)
   end
 
-  def get_solar_system_jumps_data() do
+  defp get_solar_system_jumps_data() do
     WandererApp.Utils.CSVUtil.csv_row_to_table_record(
       "#{:code.priv_dir(:wanderer_app)}/repo/data/mapSolarSystemJumps.csv",
       fn row ->
@@ -367,9 +394,6 @@ defmodule WandererApp.EveDataService do
     end
   end
 
-  defp get_solar_system_name(solar_system_name, wormhole_class) do
-  end
-
   defp get_triglavian_data(default_data, triglavian_systems, solar_system_id) do
     case Enum.find(triglavian_systems, fn system -> system.solar_system_id == solar_system_id end) do
       nil ->
@@ -387,8 +411,12 @@ defmodule WandererApp.EveDataService do
 
   defp get_security(security) do
     case security do
-      nil -> {:ok, ""}
-      _ -> {:ok, String.to_float(security) |> get_true_security() |> Float.to_string(decimals: 1)}
+      nil ->
+        {:ok, ""}
+
+      _ ->
+        {:ok,
+         String.to_float(security) |> get_true_security() |> :erlang.float_to_binary(decimals: 1)}
     end
   end
 
@@ -470,23 +498,23 @@ defmodule WandererApp.EveDataService do
     do: {:ok, 10_100}
 
   defp get_wormhole_class_id(systems, region_id, constellation_id, solar_system_id) do
-    with region <-
-           Enum.find(systems, fn system ->
-             system.location_id |> Integer.parse() |> elem(0) == region_id
-           end),
-         constellation <-
-           Enum.find(systems, fn system ->
-             system.location_id |> Integer.parse() |> elem(0) == constellation_id
-           end),
-         solar_system <-
-           Enum.find(systems, fn system ->
-             system.location_id |> Integer.parse() |> elem(0) == solar_system_id
-           end),
-         wormhole_class_id <- get_wormhole_class_id(region, constellation, solar_system) do
-      {:ok, wormhole_class_id}
-    else
-      _ -> {:ok, -1}
-    end
+    region =
+      Enum.find(systems, fn system ->
+        system.location_id |> Integer.parse() |> elem(0) == region_id
+      end)
+
+    constellation =
+      Enum.find(systems, fn system ->
+        system.location_id |> Integer.parse() |> elem(0) == constellation_id
+      end)
+
+    solar_system =
+      Enum.find(systems, fn system ->
+        system.location_id |> Integer.parse() |> elem(0) == solar_system_id
+      end)
+
+    wormhole_class_id = get_wormhole_class_id(region, constellation, solar_system)
+    {:ok, wormhole_class_id}
   end
 
   defp get_wormhole_class_id(_region, _constellation, solar_system)

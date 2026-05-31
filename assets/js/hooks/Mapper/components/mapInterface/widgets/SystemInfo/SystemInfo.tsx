@@ -1,7 +1,7 @@
 import { Widget } from '@/hooks/Mapper/components/mapInterface/components';
 import { SystemSettingsDialog } from '@/hooks/Mapper/components/mapInterface/components/SystemSettingsDialog/SystemSettingsDialog.tsx';
 import { LayoutEventBlocker, SystemView, TooltipPosition, WdImgButton } from '@/hooks/Mapper/components/ui-kit';
-import { ANOIK_ICON, DOTLAN_ICON, ZKB_ICON } from '@/hooks/Mapper/icons';
+import { ANOIK_ICON, DOTLAN_ICON, JSPACE_ICON, ZKB_ICON } from '@/hooks/Mapper/icons';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { getSystemStaticInfo } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic';
 import { PrimeIcons } from 'primereact/api';
@@ -56,6 +56,9 @@ export const SystemInfo = () => {
               </a>
               <a href={`https://evemaps.dotlan.net/system/${solarSystemName}`} rel="noreferrer" target="_blank">
                 <img src={DOTLAN_ICON} alt="" width="14" height="14" className="external-icon" />
+              </a>
+              <a href={`https://jspace.20mm.cn/search/${solarSystemName.toLowerCase()}`} rel="noreferrer" target="_blank">
+                <img src={JSPACE_ICON} width="14" height="14" className="external-icon" />
               </a>
             </LayoutEventBlocker>
           </div>

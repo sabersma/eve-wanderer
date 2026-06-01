@@ -8,7 +8,7 @@ defmodule WandererApp.Map.GarbageCollector do
 
   @logger Application.compile_env(:wanderer_app, :logger)
   @one_week_seconds 7 * 24 * 60 * 60
-  @two_weeks_seconds 14 * 24 * 60 * 60
+  @two_days_seconds 2 * 24 * 60 * 60
 
   def cleanup_chain_passages() do
     Logger.info("Start cleanup old map chain passages...")
@@ -26,7 +26,7 @@ defmodule WandererApp.Map.GarbageCollector do
     Logger.info("Start cleanup old map system signatures...")
 
     WandererApp.Api.MapSystemSignature
-    |> Ash.Query.filter(updated_at: [less_than: get_cutoff_time(@two_weeks_seconds)])
+    |> Ash.Query.filter(updated_at: [less_than: get_cutoff_time(@two_days_seconds)])
     |> Ash.bulk_destroy!(:destroy, %{}, batch_size: 100)
 
     @logger.info(fn -> "All map system signatures processed" end)

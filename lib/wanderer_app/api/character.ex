@@ -39,6 +39,9 @@ defmodule WandererApp.Api.Character do
     define(:active_by_user,
       action: :active_by_user
     )
+
+    define(:admin_all, action: :admin_all)
+    define(:update_description, action: :update_description)
   end
 
   actions do
@@ -67,6 +70,10 @@ defmodule WandererApp.Api.Character do
     read :active_by_user do
       argument(:user_id, :uuid, allow_nil?: false)
       filter(expr(user_id == ^arg(:user_id) and deleted == false))
+    end
+
+    read :admin_all do
+      prepare build(load: [:user])
     end
 
     read :last_active do
@@ -134,6 +141,11 @@ defmodule WandererApp.Api.Character do
       require_atomic? false
 
       accept([:eve_wallet_balance])
+    end
+
+    update :update_description do
+      accept([:description])
+      require_atomic? false
     end
   end
 
@@ -204,6 +216,11 @@ defmodule WandererApp.Api.Character do
     attribute :alliance_ticker, :string
     attribute :eve_wallet_balance, :float
     attribute :tracking_pool, :string
+
+    attribute :description, :string do
+      allow_nil? true
+      constraints max_length: 10_000
+    end
 
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)

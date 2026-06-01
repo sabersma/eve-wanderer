@@ -1,11 +1,11 @@
 import { SystemViewStandalone, TooltipPosition, WHClassView } from '@/hooks/Mapper/components/ui-kit';
-import { SignatureGroup, SystemSignature, TimeStatus } from '@/hooks/Mapper/types';
+import { MassState, SignatureGroup, SystemSignature, TimeStatus } from '@/hooks/Mapper/types';
 import { PrimeIcons } from 'primereact/api';
 
-import { renderK162Type } from '@/hooks/Mapper/components/mapRootContent/components/SignatureSettings/components/SignatureK162TypeSelect';
+import { renderDestinationType } from '@/hooks/Mapper/components/mapRootContent/components/SignatureSettings/components/SignatureDestinationTypeSelect';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
 
-import { K162_TYPES_MAP } from '@/hooks/Mapper/constants.ts';
+import { MULTI_DEST_WHS, ALL_DEST_TYPES_MAP } from '@/hooks/Mapper/constants.ts';
 import { parseSignatureCustomInfo } from '@/hooks/Mapper/helpers/parseSignatureCustomInfo.ts';
 import clsx from 'clsx';
 import { renderName } from './renderName.tsx';
@@ -14,21 +14,31 @@ export const renderInfoColumn = (row: SystemSignature) => {
   if (!row.group || row.group === SignatureGroup.Wormhole) {
     const customInfo = parseSignatureCustomInfo(row.custom_info);
 
-    const k162TypeOption = customInfo.k162Type ? K162_TYPES_MAP[customInfo.k162Type] : null;
+    const destTypeOption = customInfo.destType ? ALL_DEST_TYPES_MAP[customInfo.destType] : null;
 
     return (
       <div className="flex justify-start items-center gap-[4px]">
         {row.temporary_name && <span className={clsx('text-[12px]')}>{row.temporary_name}</span>}
 
         {customInfo.time_status === TimeStatus._1h && (
-          <WdTooltipWrapper offset={5} position={TooltipPosition.top} content="Signature marked as EOL">
+          <WdTooltipWrapper offset={5} position={TooltipPosition.bottom} content="Signature marked as EOL">
             <div className="pi pi-clock text-fuchsia-400 text-[11px] mr-[2px]"></div>
           </WdTooltipWrapper>
         )}
 
         {customInfo.isCrit && (
-          <WdTooltipWrapper offset={5} position={TooltipPosition.top} content="Signature marked as Crit">
+          <WdTooltipWrapper offset={5} position={TooltipPosition.bottom} content="Signature marked as Crit">
             <div className="pi pi-clock text-fuchsia-400 text-[11px] mr-[2px]"></div>
+          </WdTooltipWrapper>
+        )}
+
+        {customInfo.mass_status === MassState.verge && (
+          <WdTooltipWrapper
+            offset={5}
+            position={TooltipPosition.bottom}
+            content="Signature marked as Verge of collapse"
+          >
+            <div className="pi pi-exclamation-triangle text-red-400 text-[11px] mr-[2px]"></div>
           </WdTooltipWrapper>
         )}
 
@@ -36,14 +46,17 @@ export const renderInfoColumn = (row: SystemSignature) => {
           <WHClassView
             className="text-[11px]"
             classNameWh="!text-[11px] !font-bold"
-            hideWhClass={!!row.linked_system}
+            hideWhClass={!!destTypeOption || !!row.linked_system}
             whClassName={row.type}
             noOffset
             useShortTitle
           />
         )}
 
-        {!row.linked_system && row.type === 'K162' && k162TypeOption && renderK162Type(k162TypeOption)}
+        {!row.linked_system &&
+          MULTI_DEST_WHS.includes(row.type) &&
+          destTypeOption &&
+          renderDestinationType(destTypeOption)}
 
         {row.linked_system && (
           <>

@@ -109,8 +109,10 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
         nil ->
           MapSystemSignature.create!(sig)
 
-        _ ->
-          :noop
+        existing ->
+          # If signature already exists, update it instead of ignoring
+          # This handles the case where frontend sends existing sigs as "added"
+          apply_update_signature(map_id, existing, sig)
       end
     end)
 
@@ -167,19 +169,26 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
       updated_count: length(updated_ids),
       removed_count: length(removed_ids)
     })
+
+    # Always return :ok - external event failures should not affect the main operation
+    :ok
   end
 
   defp remove_signature(map_id, sig, system, delete_conn?) do
-    # optionally remove the linked connection
-    if delete_conn? && sig.linked_system_id do
+    # Check if this signature is the active one for the target system
+    # This prevents deleting connections when old/orphan signatures are removed
+    is_active = sig.linked_system_id && is_active_signature_for_target?(map_id, sig)
+
+    # Only delete connection if this signature is the active one
+    if delete_conn? && is_active do
       ConnectionsImpl.delete_connection(map_id, %{
         solar_system_source_id: system.solar_system_id,
         solar_system_target_id: sig.linked_system_id
       })
     end
 
-    # clear any linked_sig_eve_id on the target system
-    if sig.linked_system_id do
+    # Only clear linked_sig_eve_id if this signature is the active one
+    if is_active do
       SystemsImpl.update_system_linked_sig_eve_id(map_id, %{
         solar_system_id: sig.linked_system_id,
         linked_sig_eve_id: nil
@@ -188,6 +197,16 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
 
     sig
     |> MapSystemSignature.destroy!()
+  end
+
+  defp is_active_signature_for_target?(map_id, sig) do
+    case MapSystem.read_by_map_and_solar_system(%{
+           map_id: map_id,
+           solar_system_id: sig.linked_system_id
+         }) do
+      {:ok, target_system} -> target_system.linked_sig_eve_id == sig.eve_id
+      _ -> false
+    end
   end
 
   def apply_update_signature(
@@ -203,6 +222,7 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
       {:ok, updated} ->
         maybe_update_connection_time_status(map_id, existing, updated)
         maybe_update_connection_mass_status(map_id, existing, updated)
+        maybe_sync_custom_mass_status_to_connection(map_id, existing, updated)
         :ok
 
       {:error, reason} ->
@@ -256,6 +276,44 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
 
   defp maybe_update_connection_mass_status(_map_id, _old_sig, _updated_sig), do: :ok
 
+  defp maybe_sync_custom_mass_status_to_connection(
+         map_id,
+         %{custom_info: old_custom_info} = _old_sig,
+         %{custom_info: new_custom_info, system_id: system_id, linked_system_id: linked_system_id} =
+           _updated_sig
+       )
+       when not is_nil(linked_system_id) do
+    old_mass_status = get_mass_status(old_custom_info)
+    new_mass_status = get_mass_status(new_custom_info)
+
+    if old_mass_status != new_mass_status and not is_nil(new_mass_status) do
+      {:ok, source_system} = MapSystem.by_id(system_id)
+
+      ConnectionsImpl.update_connection_mass_status(map_id, %{
+        solar_system_source_id: source_system.solar_system_id,
+        solar_system_target_id: linked_system_id,
+        mass_status: new_mass_status
+      })
+    end
+  end
+
+  defp maybe_sync_custom_mass_status_to_connection(_map_id, _old_sig, _updated_sig), do: :ok
+
+  @doc """
+  Finds the "forward" signature in a target system that links back to the source system.
+  Used for back-link detection: when a K162 is linked from System B → System A,
+  finds the existing signature in System A that already links to System B (e.g., H296).
+  """
+  def find_forward_signature(target_system_uuid, source_solar_system_id) do
+    target_system_uuid
+    |> MapSystemSignature.by_system_id!()
+    |> Enum.find(fn sig -> sig.linked_system_id == source_solar_system_id end)
+  rescue
+    e ->
+      Logger.warning("[find_forward_signature] Error: #{inspect(e)}")
+      nil
+  end
+
   @doc """
   Wrapper for updating a signature's linked_system_id with logging.
   Logs all unlink operations (when linked_system_id is set to nil) with context
@@ -300,7 +358,7 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
   @doc false
   defp parse_signatures(signatures, character_eve_id, system_id) do
     Enum.map(signatures, fn sig ->
-      %{
+      base = %{
         system_id: system_id,
         eve_id: sig["eve_id"],
         name: sig["name"],
@@ -314,6 +372,15 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
         character_eve_id: Map.get(sig, "character_eve_id", character_eve_id),
         deleted: false
       }
+
+      # Only include linked_system_id when explicitly provided in the payload.
+      # Frontend sends "linked_system" (object), not "linked_system_id" (integer).
+      # Including nil would silently clear the DB value via the Ash :update action.
+      if Map.has_key?(sig, "linked_system_id") do
+        Map.put(base, :linked_system_id, sig["linked_system_id"])
+      else
+        base
+      end
     end)
   end
 
@@ -323,5 +390,13 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
     custom_info_json
     |> Jason.decode!()
     |> Map.get("time_status")
+  end
+
+  defp get_mass_status(nil), do: nil
+
+  defp get_mass_status(custom_info_json) do
+    custom_info_json
+    |> Jason.decode!()
+    |> Map.get("mass_status")
   end
 end

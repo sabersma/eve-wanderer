@@ -265,6 +265,10 @@ defmodule WandererApp.Character.Tracker do
         end
 
       _ ->
+        Logger.debug(fn ->
+          "[Tracker] update_online skipped for character #{character_id} - no valid access token"
+        end)
+
         {:error, :skipped}
     end
   end
@@ -601,6 +605,10 @@ defmodule WandererApp.Character.Tracker do
         end
 
       _ ->
+        Logger.debug(fn ->
+          "[Tracker] update_location skipped for character #{character_id} - no valid access token"
+        end)
+
         {:error, :skipped}
     end
   end
@@ -1053,11 +1061,22 @@ defmodule WandererApp.Character.Tracker do
     |> case do
       start_time when not is_nil(start_time) ->
         duration = DateTime.diff(DateTime.utc_now(), start_time, :second)
+
+        Logger.info(
+          "[Tracker] Removed tracking_start_time cache key for character #{character_id} " <>
+            "on map #{map_id} - tracking duration: #{duration}s"
+        )
+
         :telemetry.execute([:wanderer_app, :character, :tracker], %{duration: duration})
 
         :ok
 
       _ ->
+        Logger.info(
+          "[Tracker] tracking_start_time cache key already missing for character #{character_id} " <>
+            "on map #{map_id} when attempting to untrack"
+        )
+
         :ok
     end
 

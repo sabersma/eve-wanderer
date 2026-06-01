@@ -2,6 +2,338 @@
 
 <!-- changelog -->
 
+## [v1.100.4](https://github.com/wanderer-industries/wanderer/compare/v1.100.3...v1.100.4) (2026-05-18)
+
+
+
+
+### Bug Fixes:
+
+* core: tracking issues fixed
+
+## [v1.100.3](https://github.com/wanderer-industries/wanderer/compare/v1.100.2...v1.100.3) (2026-05-16)
+
+
+
+
+### Bug Fixes:
+
+* core: tracking issues fixed
+
+## [v1.100.2](https://github.com/wanderer-industries/wanderer/compare/v1.100.1...v1.100.2) (2026-05-16)
+
+
+
+
+### Bug Fixes:
+
+* core: tracking issues fixed
+
+## [v1.100.1](https://github.com/wanderer-industries/wanderer/compare/v1.100.0...v1.100.1) (2026-05-01)
+
+
+
+
+### Bug Fixes:
+
+* core: potential memory leak fixes
+
+## [v1.100.0](https://github.com/wanderer-industries/wanderer/compare/v1.99.1...v1.100.0) (2026-04-17)
+
+
+
+
+### Features:
+
+* core: allow wormholes to have multiple destinations
+
+* make C729 wormholes static to Pochven systems
+
+## [v1.99.1](https://github.com/wanderer-industries/wanderer/compare/v1.99.0...v1.99.1) (2026-04-15)
+
+
+
+
+### Bug Fixes:
+
+* add lost passage mass files
+
+## [v1.99.0](https://github.com/wanderer-industries/wanderer/compare/v1.98.1...v1.99.0) (2026-04-14)
+
+
+
+
+### Features:
+
+* core: Add support for editing passages mass
+
+### Bug Fixes:
+
+* Add update mass button for ship
+
+## [v1.98.1](https://github.com/wanderer-industries/wanderer/compare/v1.98.0...v1.98.1) (2026-04-10)
+
+
+
+
+### Bug Fixes:
+
+* signatures: Back linked signatures not cleared old connection statuses
+
+## [v1.98.0](https://github.com/wanderer-industries/wanderer/compare/v1.97.5...v1.98.0) (2026-04-06)
+
+
+
+
+### Features:
+
+* core: added character profile pages support
+
+## [v1.97.5](https://github.com/wanderer-industries/wanderer/compare/v1.97.4...v1.97.5) (2026-03-26)
+
+
+
+
+### Bug Fixes:
+
+* core: Fixed character re-auth issues
+
+## [v1.97.4](https://github.com/wanderer-industries/wanderer/compare/v1.97.3...v1.97.4) (2026-03-26)
+
+
+
+
+### Bug Fixes:
+
+* core: Fixed character re-auth issues
+
+## [v1.97.3](https://github.com/wanderer-industries/wanderer/compare/v1.97.2...v1.97.3) (2026-03-25)
+
+
+
+
+### Bug Fixes:
+
+* core: Fixed character re-auth issues
+
+## [v1.97.2](https://github.com/wanderer-industries/wanderer/compare/v1.97.1...v1.97.2) (2026-03-23)
+
+
+
+
+### Bug Fixes:
+
+* core: Fixed tracking issues & adding systems to map from routes
+
+## [v1.97.1](https://github.com/wanderer-industries/wanderer/compare/v1.97.0...v1.97.1) (2026-03-21)
+
+
+
+
+### Bug Fixes:
+
+* Add new Pochven medium wormholes (I078, L687, O546). Change lifetime to 12H from 16H for X450, U372, R081, F216.
+
+## [v1.97.0](https://github.com/wanderer-industries/wanderer/compare/v1.96.6...v1.97.0) (2026-03-14)
+
+
+
+
+### Features:
+
+* signatures: Sync mass status with connection, show it on unsplashed sigs
+
+### Bug Fixes:
+
+* Connection context menu and wormhole. Change UI for select wormhole mass state. Change UI for select ship-size for wormhole. Add ability to set mass for signatures
+
+## [v1.96.6](https://github.com/wanderer-industries/wanderer/compare/v1.96.5...v1.96.6) (2026-03-13)
+
+
+
+
+### Bug Fixes:
+
+* core: Fixed tracking issues
+
+## [v1.96.5](https://github.com/wanderer-industries/wanderer/compare/v1.96.4...v1.96.5) (2026-02-27)
+
+
+
+
+### Bug Fixes:
+
+* core: Fixed access token refresh issues
+
+## [v1.96.4](https://github.com/wanderer-industries/wanderer/compare/v1.96.3...v1.96.4) (2026-02-17)
+
+
+
+
+### Bug Fixes:
+
+* Change character token validity status. Now we will see red frame and icon for tracked characters which token was expired.
+
+## [v1.96.3](https://github.com/wanderer-industries/wanderer/compare/v1.96.2...v1.96.3) (2026-02-15)
+
+
+
+
+### Bug Fixes:
+
+* tracking: Fixed character tracking issues
+
+## [v1.96.2](https://github.com/wanderer-industries/wanderer/compare/v1.96.1...v1.96.2) (2026-02-13)
+
+
+
+
+### Bug Fixes:
+
+* Added icons for RoutesBy
+
+## [v1.96.1](https://github.com/wanderer-industries/wanderer/compare/v1.96.0...v1.96.1) (2026-02-12)
+
+
+
+
+## [v1.96.0](https://github.com/wanderer-industries/wanderer/compare/v1.95.0...v1.96.0) (2026-02-12)
+
+
+
+
+### Features:
+
+* signatures: Fixed creator visibility issues. Added 4.5 hour color for unsplashed
+
+## [v1.95.0](https://github.com/wanderer-industries/wanderer/compare/v1.94.0...v1.95.0) (2026-02-11)
+
+
+
+
+### Features:
+
+* subscriptions: Added top map donators support
+
+* Added lost files
+
+* Added paywall for RoutesBy widget
+
+* removed unnecessary env variable for routes
+
+* Add systems with Security Status cleaning. Add trade hubs. Add ability to store data for this widget
+
+* Add Routes By widget. Allow to find nearest blue loot and red loot stations. Added ability to set waypoint to station.
+
+* auto add system on sig addition
+
+* map: Reviewed changes
+
+* map: Logic for multiple owner updates
+
+* map: wip New Dialog for Structure Owners
+
+### Bug Fixes:
+
+* signatures: Fixed back linked sigs data sync and leading to system override issues
+
+* signatures: Moved C1/C2/C3 and C4/C5 to the bottom of the available list
+
+* use cache for sse
+
+* adding system when linked signature is provided
+
+* saving updates to unknown sigs
+
+* wh position and sig type change
+
+* api updates and linked sig addition
+
+* api fixes and format
+
+* Wrong file added to commits
+
+## [v1.94.0](https://github.com/wanderer-industries/wanderer/compare/v1.93.0...v1.94.0) (2026-02-08)
+
+
+
+
+### Features:
+
+* administration: Added registered characters admin view with cort/ally info, sort and filter options
+
+## [v1.93.0](https://github.com/wanderer-industries/wanderer/compare/v1.92.0...v1.93.0) (2026-02-08)
+
+
+
+
+### Features:
+
+* subscriptions: Added an ability to withdraw from map to user balance
+
+## [v1.92.0](https://github.com/wanderer-industries/wanderer/compare/v1.91.11...v1.92.0) (2026-01-14)
+
+
+
+
+### Features:
+
+* Added ability to select a range of wh classes for k162.
+
+### Bug Fixes:
+
+* core: Show c1/c2/c3 or c4/c5 or link signature modal
+
+## [v1.91.11](https://github.com/wanderer-industries/wanderer/compare/v1.91.10...v1.91.11) (2026-01-13)
+
+
+
+
+### Bug Fixes:
+
+* allow sig api when map relay is off
+
+## [v1.91.10](https://github.com/wanderer-industries/wanderer/compare/v1.91.9...v1.91.10) (2026-01-07)
+
+
+
+
+### Bug Fixes:
+
+* remove actor context requirement from sig api
+
+## [v1.91.9](https://github.com/wanderer-industries/wanderer/compare/v1.91.8...v1.91.9) (2026-01-06)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed rally point cancel logic
+
+## [v1.91.8](https://github.com/wanderer-industries/wanderer/compare/v1.91.7...v1.91.8) (2026-01-06)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed rally point cancel logic
+
+## [v1.91.7](https://github.com/wanderer-industries/wanderer/compare/v1.91.6...v1.91.7) (2026-01-05)
+
+
+
+
+## [v1.91.6](https://github.com/wanderer-industries/wanderer/compare/v1.91.5...v1.91.6) (2026-01-04)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed new connections got deleted after linked signature cleanup
+
 ## [v1.91.5](https://github.com/wanderer-industries/wanderer/compare/v1.91.4...v1.91.5) (2025-12-30)
 
 

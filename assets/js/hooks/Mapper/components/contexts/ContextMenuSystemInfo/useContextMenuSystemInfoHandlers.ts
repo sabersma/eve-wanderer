@@ -38,7 +38,7 @@ export const useContextMenuSystemInfoHandlers = () => {
       return;
     }
 
-    ref.current.toggleHubCommand(system);
+    ref.current.toggleHubCommand?.(system);
     setSystem(undefined);
   }, []);
 
@@ -49,9 +49,9 @@ export const useContextMenuSystemInfoHandlers = () => {
     }
 
     outCommand({
-      type: OutCommand.addSystem,
+      type: OutCommand.manualAddSystem,
       data: {
-        system_id: solarSystemId,
+        solar_system_id: parseInt(solarSystemId),
       },
     });
 

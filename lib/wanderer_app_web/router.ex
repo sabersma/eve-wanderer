@@ -7,7 +7,7 @@ defmodule WandererAppWeb.Router do
 
   import WandererAppWeb.UserAuth,
     warn: false,
-    only: [redirect_if_user_is_authenticated: 2]
+    only: [redirect_if_user_is_authenticated: 2, require_authenticated_user: 2]
 
   import WandererAppWeb.BasicAuth,
     warn: false,
@@ -164,6 +164,10 @@ defmodule WandererAppWeb.Router do
     plug :put_layout, html: {WandererAppWeb.Layouts, :blog}
   end
 
+  pipeline :require_auth do
+    plug :require_authenticated_user
+  end
+
   pipeline :api do
     plug WandererAppWeb.Plugs.ContentNegotiation, accepts: ["json"]
     plug :accepts, ["json"]
@@ -299,6 +303,8 @@ defmodule WandererAppWeb.Router do
     resources "/structures", MapSystemStructureAPIController, except: [:new, :edit]
     get "/structure-timers", MapSystemStructureAPIController, :structure_timers
     resources "/signatures", MapSystemSignatureAPIController, except: [:new, :edit]
+    post "/signatures/:id/link", MapSystemSignatureAPIController, :link
+    delete "/signatures/:id/link", MapSystemSignatureAPIController, :unlink
     get "/user-characters", MapAPIController, :show_user_characters
     get "/tracked-characters", MapAPIController, :show_tracked_characters
   end
@@ -339,6 +345,11 @@ defmodule WandererAppWeb.Router do
   scope "/api/common", WandererAppWeb do
     pipe_through [:api]
     get "/system-static-info", CommonAPIController, :show_system_static
+  end
+
+  scope "/route", WandererAppWeb do
+    pipe_through [:api]
+    post "/findClosest", RouteBuilderController, :find_closest
   end
 
   scope "/api" do
@@ -409,6 +420,8 @@ defmodule WandererAppWeb.Router do
     pipe_through [:browser, :blog]
     get "/", BlogController, :license
   end
+
+
 
   scope "/swaggerui" do
     pipe_through [:browser, :api_spec]
@@ -506,6 +519,7 @@ defmodule WandererAppWeb.Router do
       live("/maps", AdminMapsLive, :index)
       live("/maps/:id/edit", AdminMapsLive, :edit)
       live("/maps/:id/acls", AdminMapsLive, :view_acls)
+      live("/characters", AdminCharactersLive, :index)
     end
 
     error_tracker_dashboard("/errors",
@@ -541,6 +555,8 @@ defmodule WandererAppWeb.Router do
       live "/tracking", CharactersTrackingLive, :index
       live "/characters", CharactersLive, :index
       live "/characters/authorize", CharactersLive, :authorize
+      live "/characters/:eve_id", CharacterProfileLive, :show
+      live "/sponsors", SponsorsLive, :index
       live "/maps/new", MapsLive, :create
       live "/maps/:slug/edit", MapsLive, :edit
       live "/maps/:slug/settings", MapsLive, :settings

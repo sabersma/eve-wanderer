@@ -10,6 +10,12 @@ defmodule WandererAppWeb.AuthController do
   def callback(%{assigns: %{ueberauth_auth: auth, current_user: user} = _assigns} = conn, _params) do
     active_tracking_pool = WandererApp.Character.TrackingConfigUtils.get_active_pool!()
 
+    Logger.info(
+      "[AuthController] SSO callback SUCCESS for eve_id=#{auth.info.email}, " <>
+        "has_token=#{not is_nil(auth.credentials.token)}, " <>
+        "has_refresh=#{not is_nil(auth.credentials.refresh_token)}"
+    )
+
     character_data = %{
       eve_id: "#{auth.info.email}",
       name: auth.info.name,
@@ -40,7 +46,24 @@ defmodule WandererAppWeb.AuthController do
             character
             |> WandererApp.Api.Character.update(character_update)
 
+          Logger.info(
+            "[AuthController] Character #{character.id} tokens updated in DB, " <>
+              "access_token_present=#{not is_nil(character.access_token)}"
+          )
+
           WandererApp.Character.update_character(character.id, character_update)
+
+          # Clear the invalid_grant counter so stale failures don't cause
+          # premature token invalidation after a successful re-auth
+          WandererApp.Cache.delete("character:#{character.id}:invalid_grant_count")
+
+          # Set a grace period to protect fresh tokens from being wiped by
+          # in-flight or immediately-subsequent invalid_grant errors
+          WandererApp.Cache.put(
+            "character:#{character.id}:reauth_grace",
+            true,
+            ttl: :timer.minutes(5)
+          )
 
           # Update corporation/alliance data from ESI to ensure access control is current
           update_character_affiliation(character)
@@ -96,7 +119,16 @@ defmodule WandererAppWeb.AuthController do
   end
 
   def callback(conn, _params) do
+    # This runs when Ueberauth auth FAILED — tokens are NOT updated
+    ueberauth_failure = conn.assigns[:ueberauth_failure]
+
+    Logger.warning(
+      "[AuthController] SSO callback FAILED - no ueberauth_auth in assigns. " <>
+        "Failure: #{inspect(ueberauth_failure)}"
+    )
+
     conn
+    |> put_flash(:error, "Authorization failed. Please try again.")
     |> redirect(to: "/characters")
   end
 

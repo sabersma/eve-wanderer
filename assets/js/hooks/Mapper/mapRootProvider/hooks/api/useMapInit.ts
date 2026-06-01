@@ -24,10 +24,12 @@ export const useMapInit = () => {
         user_permissions,
         options,
         is_subscription_active,
+        available_routes_by,
         main_character_eve_id,
         following_character_eve_id,
         user_hubs,
         map_slug,
+        expired_characters,
       } = props;
 
       const updateData: Partial<MapRootData> = {};
@@ -85,6 +87,10 @@ export const useMapInit = () => {
         updateData.isSubscriptionActive = is_subscription_active;
       }
 
+      if (available_routes_by) {
+        updateData.availableRoutesBy = available_routes_by;
+      }
+
       if (system_static_infos) {
         system_static_infos.forEach(static_info => {
           addSystemStatic(static_info);
@@ -101,6 +107,10 @@ export const useMapInit = () => {
 
       if ('map_slug' in props) {
         updateData.map_slug = map_slug;
+      }
+
+      if ('expired_characters' in props) {
+        updateData.expiredCharacters = expired_characters;
       }
 
       update(updateData);

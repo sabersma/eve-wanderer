@@ -159,7 +159,7 @@ defmodule WandererApp.Map.Server.CharactersImpl do
 
               if is_same_user_as_owner do
                 # All characters from the map owner's account have full access
-                :ok
+                {:ok, character_id}
               else
                 [character_permissions] =
                   WandererApp.Permissions.check_characters_access([character], acls)
@@ -179,12 +179,12 @@ defmodule WandererApp.Map.Server.CharactersImpl do
                     {:remove_character, character_id, :no_track_permission}
 
                   _ ->
-                    :ok
+                    {:ok, character_id}
                 end
               end
 
             _ ->
-              :ok
+              {:ok, character_id}
           end
         end,
         timeout: :timer.seconds(60),
@@ -193,7 +193,26 @@ defmodule WandererApp.Map.Server.CharactersImpl do
       )
       |> Enum.reduce([], fn
         {:ok, {:remove_character, character_id, reason}}, acc ->
-          [{character_id, reason} | acc]
+          # Track consecutive permission failures - only remove after 3 consecutive hourly failures
+          fail_key = "map_#{map_id}:char_#{character_id}:perm_fail_count"
+          count = WandererApp.Cache.lookup!(fail_key, 0) + 1
+          WandererApp.Cache.put(fail_key, count, ttl: :timer.hours(4))
+
+          if count >= 3 do
+            WandererApp.Cache.delete(fail_key)
+            [{character_id, reason} | acc]
+          else
+            Logger.info(
+              "[CharacterCleanup] Character #{character_id} permission fail #{count}/3 on map #{map_id}, deferring removal"
+            )
+
+            acc
+          end
+
+        {:ok, {:ok, character_id}}, acc ->
+          # Character passed permission check - clear any previous failure counter
+          WandererApp.Cache.delete("map_#{map_id}:char_#{character_id}:perm_fail_count")
+          acc
 
         {:ok, _result}, acc ->
           acc
@@ -314,10 +333,14 @@ defmodule WandererApp.Map.Server.CharactersImpl do
         settings
         |> Enum.each(fn s ->
           Logger.info(fn ->
-            "[CharacterCleanup] Map #{map_id} - destroying settings and removing character #{s.character_id}"
+            "[CharacterCleanup] Map #{map_id} - untracking settings and removing character #{s.character_id}"
           end)
 
-          WandererApp.MapCharacterSettingsRepo.destroy!(s)
+          WandererApp.MapCharacterSettingsRepo.untrack!(%{
+            map_id: s.map_id,
+            character_id: s.character_id
+          })
+
           remove_character(map_id, s.character_id)
         end)
 
@@ -330,6 +353,70 @@ defmodule WandererApp.Map.Server.CharactersImpl do
 
       _ ->
         :ok
+    end
+  end
+
+  @doc """
+  Reconciles tracking state between the database and cache.
+
+  Finds characters where the DB has `tracked: true` AND the character is
+  currently present on the map, but the `tracking_start_time` cache key
+  is missing (e.g. due to cache eviction or server restart), and restores
+  the cache key so tracking resumes.
+
+  Only restores tracking for characters that are currently in the presence
+  list to avoid re-tracking stale/ghost characters that were untracked
+  before the DB was properly updated.
+  """
+  def reconcile_tracking(map_id) do
+    with {:ok, tracked_settings} <-
+           WandererApp.MapCharacterSettingsRepo.get_tracked_by_map_all(map_id) do
+      db_tracked_ids =
+        tracked_settings
+        |> Enum.map(fn s -> s.character_id end)
+
+      # Only consider characters that are currently present on the map
+      {:ok, presence_character_ids} =
+        WandererApp.Cache.lookup("map_#{map_id}:presence_character_ids", [])
+
+      presence_set = MapSet.new(presence_character_ids)
+
+      # Filter to characters that are present AND missing the tracking cache key
+      present_tracked_ids =
+        db_tracked_ids
+        |> Enum.filter(fn character_id -> MapSet.member?(presence_set, character_id) end)
+
+      restored =
+        present_tracked_ids
+        |> Enum.filter(fn character_id ->
+          cache_key = "character:#{character_id}:map:#{map_id}:tracking_start_time"
+          {:ok, val} = WandererApp.Cache.lookup(cache_key, nil)
+          is_nil(val)
+        end)
+
+      if length(restored) > 0 do
+        Logger.info(fn ->
+          "[TrackingReconciliation] Map #{map_id} - restoring #{length(restored)} characters " <>
+            "with tracked=true in DB, present in map, but missing cache key: #{inspect(restored)}"
+        end)
+
+        Enum.each(restored, fn character_id ->
+          WandererApp.Cache.put(
+            "character:#{character_id}:map:#{map_id}:tracking_start_time",
+            DateTime.utc_now()
+          )
+        end)
+
+        :telemetry.execute(
+          [:wanderer_app, :map, :tracking_reconciliation, :restored],
+          %{restored_count: length(restored), system_time: System.system_time()},
+          %{map_id: map_id, character_ids: restored}
+        )
+      end
+
+      :ok
+    else
+      _ -> :ok
     end
   end
 
@@ -780,10 +867,14 @@ defmodule WandererApp.Map.Server.CharactersImpl do
     old_alliance_id = Map.get(cached_values, alliance_key)
 
     if character.alliance_id != old_alliance_id do
-      {
-        [{:character_alliance, %{alliance_id: character.alliance_id}} | updates],
-        Map.put(cache_updates, alliance_key, character.alliance_id)
-      }
+      cache_updates = Map.put(cache_updates, alliance_key, character.alliance_id)
+
+      if is_nil(old_alliance_id) do
+        # Initial cache population, not a real change - just update cache
+        {updates, cache_updates}
+      else
+        {[{:character_alliance, %{alliance_id: character.alliance_id}} | updates], cache_updates}
+      end
     else
       {updates, cache_updates}
     end
@@ -802,10 +893,15 @@ defmodule WandererApp.Map.Server.CharactersImpl do
     old_corporation_id = Map.get(cached_values, corporation_key)
 
     if character.corporation_id != old_corporation_id do
-      {
-        [{:character_corporation, %{corporation_id: character.corporation_id}} | updates],
-        Map.put(cache_updates, corporation_key, character.corporation_id)
-      }
+      cache_updates = Map.put(cache_updates, corporation_key, character.corporation_id)
+
+      if is_nil(old_corporation_id) do
+        # Initial cache population, not a real change - just update cache
+        {updates, cache_updates}
+      else
+        {[{:character_corporation, %{corporation_id: character.corporation_id}} | updates],
+         cache_updates}
+      end
     else
       {updates, cache_updates}
     end
@@ -952,12 +1048,63 @@ defmodule WandererApp.Map.Server.CharactersImpl do
     {:ok, character} =
       WandererApp.Character.get_character(character_id)
 
-    add_character(map_id, character, true)
+    case WandererApp.Api.MapCharacterSettings.read_by_map_and_character(%{
+           map_id: map_id,
+           character_id: character_id
+         }) do
+      {:ok, %{tracked: false}} ->
+        # Was previously untracked (by system cleanup or user).
+        # If character now has valid tokens, check permissions and auto-restore tracking.
+        # This handles the case where re-auth gives fresh tokens but DB still says tracked: false.
+        if not is_nil(character.access_token) do
+          case WandererApp.Character.TrackingUtils.check_character_tracking_permission(
+                 character,
+                 map_id
+               ) do
+            {:ok, :allowed} ->
+              Logger.info(
+                "[CharactersImpl] Auto-restoring tracking for character #{character_id} on map #{map_id} - " <>
+                  "character has valid tokens and permissions after reconnect"
+              )
 
-    WandererApp.Character.TrackerManager.update_track_settings(character_id, %{
-      map_id: map_id,
-      track: true
-    })
+              add_character(map_id, character, true)
+
+              WandererApp.MapCharacterSettingsRepo.track(%{
+                map_id: map_id,
+                character_id: character_id
+              })
+
+              WandererApp.Character.TrackerManager.update_track_settings(character_id, %{
+                map_id: map_id,
+                track: true
+              })
+
+            _ ->
+              Logger.debug(fn ->
+                "[CharactersImpl] Skipping re-track for character #{character_id} on map #{map_id} - " <>
+                  "character lacks permissions"
+              end)
+
+              add_character(map_id, character, false)
+          end
+        else
+          Logger.debug(fn ->
+            "[CharactersImpl] Skipping re-track for character #{character_id} on map #{map_id} - " <>
+              "character has no valid access token"
+          end)
+
+          add_character(map_id, character, false)
+        end
+
+      _ ->
+        # New character or already tracked - enable tracking
+        add_character(map_id, character, true)
+
+        WandererApp.Character.TrackerManager.update_track_settings(character_id, %{
+          map_id: map_id,
+          track: true
+        })
+    end
   end
 
   # Broadcasts permission update to trigger LiveView refresh for the character's user.

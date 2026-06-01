@@ -6,7 +6,6 @@ import {
   MapUnionTypes,
   OutCommandHandler,
   SolarSystemConnection,
-  StringBoolean,
   TrackingCharacter,
   UseCharactersCacheData,
   UseCommentsData,
@@ -28,12 +27,14 @@ import {
   MapSettings,
   MapUserSettings,
   OnTheMapSettingsType,
+  RoutesByType,
   RoutesType,
 } from '@/hooks/Mapper/mapRootProvider/types.ts';
 import {
   DEFAULT_KILLS_WIDGET_SETTINGS,
   DEFAULT_MAP_SETTINGS,
   DEFAULT_ON_THE_MAP_SETTINGS,
+  DEFAULT_ROUTES_BY_SETTINGS,
   DEFAULT_ROUTES_SETTINGS,
   DEFAULT_WIDGET_LOCAL_SETTINGS,
   STORED_INTERFACE_DEFAULT_VALUES,
@@ -55,6 +56,7 @@ export type MapRootData = MapUnionTypes & {
   trackingCharactersData: TrackingCharacter[];
   loadingPublicRoutes: boolean;
   map_slug: string | null;
+  expiredCharacters: string[];
 };
 
 const INITIAL_DATA: MapRootData = {
@@ -76,6 +78,8 @@ const INITIAL_DATA: MapRootData = {
   userHubs: [],
   routes: undefined,
   userRoutes: undefined,
+  routesListBy: undefined,
+  availableRoutesBy: [],
   kills: [],
   connections: [],
   detailedKills: {},
@@ -99,6 +103,7 @@ const INITIAL_DATA: MapRootData = {
   pings: [],
   loadingPublicRoutes: false,
   map_slug: null,
+  expiredCharacters: [],
 };
 
 export enum InterfaceStoredSettingsProps {
@@ -132,6 +137,8 @@ export interface MapRootContextProps {
     setInterfaceSettings: Dispatch<SetStateAction<InterfaceStoredSettings>>;
     settingsRoutes: RoutesType;
     settingsRoutesUpdate: Dispatch<SetStateAction<RoutesType>>;
+    settingsRoutesBy: RoutesByType;
+    settingsRoutesByUpdate: Dispatch<SetStateAction<RoutesByType>>;
     settingsLocal: LocalWidgetSettings;
     settingsLocalUpdate: Dispatch<SetStateAction<LocalWidgetSettings>>;
     settingsSignatures: SignatureSettingsType;
@@ -179,6 +186,8 @@ const MapRootContext = createContext<MapRootContextProps>({
     setInterfaceSettings: () => null,
     settingsRoutes: DEFAULT_ROUTES_SETTINGS,
     settingsRoutesUpdate: () => null,
+    settingsRoutesBy: { ...DEFAULT_ROUTES_BY_SETTINGS, routes: { ...DEFAULT_ROUTES_BY_SETTINGS.routes } },
+    settingsRoutesByUpdate: () => null,
     settingsLocal: DEFAULT_WIDGET_LOCAL_SETTINGS,
     settingsLocalUpdate: () => null,
     settingsSignatures: DEFAULT_SIGNATURE_SETTINGS,

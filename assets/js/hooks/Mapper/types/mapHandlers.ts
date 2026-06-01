@@ -3,6 +3,7 @@ import { ActivitySummary, CharacterTypeRaw, TrackingCharacter } from '@/hooks/Ma
 import { SolarSystemConnection } from '@/hooks/Mapper/types/connection.ts';
 import { DetailedKill, Kill } from '@/hooks/Mapper/types/kills.ts';
 import { RoutesList } from '@/hooks/Mapper/types/routes.ts';
+import { RoutesByCategoryType } from '@/hooks/Mapper/mapRootProvider/types.ts';
 import { SolarSystemRawType, SolarSystemStaticInfoRaw } from '@/hooks/Mapper/types/system.ts';
 import { WormholeDataRaw } from '@/hooks/Mapper/types/wormholes.ts';
 
@@ -25,6 +26,7 @@ export enum Commands {
   detailedKillsUpdated = 'detailed_kills_updated',
   routes = 'routes',
   userRoutes = 'user_routes',
+  routesListBy = 'routes_list_by',
   centerSystem = 'center_system',
   selectSystem = 'select_system',
   selectSystems = 'select_systems',
@@ -41,6 +43,7 @@ export enum Commands {
   refreshTrackingData = 'refresh_tracking_data',
   pingAdded = 'ping_added',
   pingCancelled = 'ping_cancelled',
+  pingBlocked = 'ping_blocked',
 }
 
 export type Command =
@@ -61,6 +64,7 @@ export type Command =
   | Commands.detailedKillsUpdated
   | Commands.routes
   | Commands.userRoutes
+  | Commands.routesListBy
   | Commands.selectSystem
   | Commands.selectSystems
   | Commands.centerSystem
@@ -77,7 +81,8 @@ export type Command =
   | Commands.showTracking
   | Commands.refreshTrackingData
   | Commands.pingAdded
-  | Commands.pingCancelled;
+  | Commands.pingCancelled
+  | Commands.pingBlocked;
 
 export type CommandInit = {
   systems: SolarSystemRawType[];
@@ -99,9 +104,11 @@ export type CommandInit = {
   options: MapOptions;
   reset?: boolean;
   is_subscription_active?: boolean;
+  available_routes_by?: RoutesByCategoryType[];
   main_character_eve_id?: string | null;
   following_character_eve_id?: string | null;
   map_slug?: string;
+  expired_characters: string[];
 };
 
 export type CommandAddSystems = SolarSystemRawType[];
@@ -119,6 +126,7 @@ export type CommandSignaturesUpdated = string;
 export type CommandMapUpdated = Partial<CommandInit>;
 export type CommandRoutes = RoutesList;
 export type CommandUserRoutes = RoutesList;
+export type CommandRoutesListBy = RoutesList;
 export type CommandKillsUpdated = Kill[];
 export type CommandDetailedKillsUpdated = Record<string, DetailedKill[]>;
 export type CommandSelectSystem = string | undefined;
@@ -161,6 +169,10 @@ export type CommandUpdateTracking = {
 };
 export type CommandPingAdded = PingData[];
 export type CommandPingCancelled = Pick<PingData, 'type' | 'id'>;
+export type CommandPingBlocked = {
+  reason: string;
+  message: string;
+};
 
 export interface UserSettings {
   primaryCharacterId?: string;
@@ -193,6 +205,7 @@ export interface CommandData {
   [Commands.mapUpdated]: CommandMapUpdated;
   [Commands.routes]: CommandRoutes;
   [Commands.userRoutes]: CommandUserRoutes;
+  [Commands.routesListBy]: CommandRoutesListBy;
   [Commands.killsUpdated]: CommandKillsUpdated;
   [Commands.detailedKillsUpdated]: CommandDetailedKillsUpdated;
   [Commands.selectSystem]: CommandSelectSystem;
@@ -212,6 +225,7 @@ export interface CommandData {
   [Commands.refreshTrackingData]: CommandRefreshTrackingData;
   [Commands.pingAdded]: CommandPingAdded;
   [Commands.pingCancelled]: CommandPingCancelled;
+  [Commands.pingBlocked]: CommandPingBlocked;
 }
 
 export interface MapHandlers {
@@ -225,6 +239,7 @@ export enum OutCommand {
   deleteUserHub = 'delete_user_hub',
   getRoutes = 'get_routes',
   getUserRoutes = 'get_user_routes',
+  getRoutesBy = 'get_routes_by',
   getCharacterJumps = 'get_character_jumps',
   getStructures = 'get_structures',
   getSignatures = 'get_signatures',
@@ -257,6 +272,7 @@ export enum OutCommand {
   addSystem = 'add_system',
   openUserSettings = 'open_user_settings',
   getPassages = 'get_passages',
+  updatePassageMass = 'update_passage_mass',
   linkSignatureToSystem = 'link_signature_to_system',
   getCorporationNames = 'get_corporation_names',
   getCorporationTicker = 'get_corporation_ticker',

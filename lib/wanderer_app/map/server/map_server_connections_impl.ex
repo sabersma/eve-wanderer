@@ -5,6 +5,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
 
   alias WandererApp.Map.Server.Impl
   alias WandererApp.Map.Server.SignaturesImpl
+  alias WandererApp.Map.Server.SystemsImpl
 
   # @ccp1 -1
   @c1 1
@@ -275,7 +276,13 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
         map_id,
         connection_update
       ),
-      do: update_connection(map_id, :update_mass_status, [:mass_status], connection_update)
+      do:
+        update_connection(map_id, :update_mass_status, [:mass_status], connection_update, fn
+          %{mass_status: old_mass_status}, %{mass_status: mass_status} = updated_connection ->
+            if mass_status != old_mass_status do
+              maybe_update_linked_signature_mass_status(map_id, updated_connection)
+            end
+        end)
 
   def update_connection_ship_size_type(
         map_id,
@@ -527,6 +534,71 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
     Impl.broadcast!(map_id, :signatures_updated, solar_system_id)
   end
 
+  defp maybe_update_linked_signature_mass_status(
+         map_id,
+         %{
+           mass_status: mass_status,
+           solar_system_source: solar_system_source,
+           solar_system_target: solar_system_target
+         } = _updated_connection
+       ) do
+    with source_system when not is_nil(source_system) <-
+           WandererApp.Map.find_system_by_location(
+             map_id,
+             %{solar_system_id: solar_system_source}
+           ),
+         target_system when not is_nil(target_system) <-
+           WandererApp.Map.find_system_by_location(
+             map_id,
+             %{solar_system_id: solar_system_target}
+           ),
+         source_linked_signatures <-
+           find_linked_signatures(source_system, target_system),
+         target_linked_signatures <- find_linked_signatures(target_system, source_system) do
+      update_signatures_mass_status(
+        map_id,
+        source_system.solar_system_id,
+        source_linked_signatures,
+        mass_status
+      )
+
+      update_signatures_mass_status(
+        map_id,
+        target_system.solar_system_id,
+        target_linked_signatures,
+        mass_status
+      )
+    else
+      error ->
+        Logger.warning("Failed to update_linked_signature_mass_status: #{inspect(error)}")
+    end
+  end
+
+  defp update_signatures_mass_status(_map_id, _solar_system_id, [], _mass_status), do: :ok
+
+  defp update_signatures_mass_status(map_id, solar_system_id, signatures, mass_status) do
+    signatures
+    |> Enum.each(fn %{custom_info: custom_info_json} = sig ->
+      update_params =
+        if not is_nil(custom_info_json) do
+          updated_custom_info =
+            custom_info_json
+            |> Jason.decode!()
+            |> Map.merge(%{"mass_status" => mass_status})
+            |> Jason.encode!()
+
+          %{custom_info: updated_custom_info}
+        else
+          updated_custom_info = Jason.encode!(%{"mass_status" => mass_status})
+          %{custom_info: updated_custom_info}
+        end
+
+      SignaturesImpl.apply_update_signature(map_id, sig, update_params)
+    end)
+
+    Impl.broadcast!(map_id, :signatures_updated, solar_system_id)
+  end
+
   def maybe_add_connection(
         map_id,
         location,
@@ -594,6 +666,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
         time_status = get_extra_info(extra_info, "time_status", time_status)
         mass_status = get_extra_info(extra_info, "mass_status", 0)
         locked = get_extra_info(extra_info, "locked", false)
+        wormhole_type = get_extra_info(extra_info, "wormhole_type", nil)
 
         {:ok, connection} =
           WandererApp.MapConnectionRepo.create(%{
@@ -604,7 +677,8 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
             ship_size_type: ship_size_type,
             time_status: time_status,
             mass_status: mass_status,
-            locked: locked
+            locked: locked,
+            wormhole_type: wormhole_type
           })
 
         if connection_type == @connection_type_wormhole do
@@ -914,8 +988,10 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
       if not from_is_wormhole and not to_is_wormhole do
         # Check if there's a known stargate
         case find_solar_system_jump(from_solar_system_id, to_solar_system_id) do
-          {:ok, []} -> true  # No stargate = wormhole connection
-          _ -> false  # Stargate exists or error
+          # No stargate = wormhole connection
+          {:ok, []} -> true
+          # Stargate exists or error
+          _ -> false
         end
       else
         false
@@ -957,6 +1033,13 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
         })
 
         WandererApp.Cache.delete("map_#{map_id}:conn_#{connection.id}:start_time")
+
+        # Clear linked_sig_eve_id on target system when connection is deleted
+        # This ensures old signatures become orphaned and won't affect future connections
+        SystemsImpl.update_system_linked_sig_eve_id(map_id, %{
+          solar_system_id: location.solar_system_id,
+          linked_sig_eve_id: nil
+        })
 
       _error ->
         :ok

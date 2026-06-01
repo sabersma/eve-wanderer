@@ -88,7 +88,8 @@ defmodule WandererAppWeb.MapEventHandler do
     "update_connection_mass_status",
     "update_connection_ship_size_type",
     "update_connection_locked",
-    "update_connection_custom_info"
+    "update_connection_custom_info",
+    "update_passage_mass"
   ]
 
   @map_activity_events [
@@ -101,11 +102,13 @@ defmodule WandererAppWeb.MapEventHandler do
 
   @map_routes_events [
     :routes,
-    :user_routes
+    :user_routes,
+    :routes_list_by
   ]
 
   @map_routes_ui_events [
     "get_routes",
+    "get_routes_by",
     "get_user_routes",
     "set_autopilot_waypoint",
     "add_hub",

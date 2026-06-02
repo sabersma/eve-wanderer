@@ -105,7 +105,7 @@ export const KillRowDetail = ({ killDetails, systemName, onlyOneSystem, classNam
     'Victim',
   );
 
-  const { url: attackerPrimaryImageUrl, tooltip: attackerPrimaryTooltip } = useMemo(
+  const { url: attackerPrimaryImageUrl } = useMemo(
     () =>
       getAttackerPrimaryImageAndTooltip(
         attackerIsNpc,
@@ -124,6 +124,18 @@ export const KillRowDetail = ({ killDetails, systemName, onlyOneSystem, classNam
       safeFinalBlowShipTypeId,
     ],
   );
+
+  const attackerTooltipContent = attackerIsNpc
+    ? 'NPC'
+    : [
+        safeFinalBlowCharName || 'Attacker',
+        safeFinalBlowCorpName || safeFinalBlowAllianceName || 'Unknown Corp',
+        safeFinalBlowAllianceName && safeFinalBlowAllianceName !== safeFinalBlowCorpName
+          ? safeFinalBlowAllianceName
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' / ');
 
   // Define attackerTicker to use the alliance ticker if available, otherwise the corp ticker.
   const attackerTicker = attackerIsNpc ? '' : safeFinalBlowAllianceTicker || safeFinalBlowCorpTicker || '';
@@ -211,7 +223,7 @@ export const KillRowDetail = ({ killDetails, systemName, onlyOneSystem, classNam
           </div>
         </div>
         {attackerPrimaryImageUrl && (
-          <WdTooltipWrapper content={attackerPrimaryTooltip} position={TooltipPosition.top}>
+          <WdTooltipWrapper content={attackerTooltipContent} position={TooltipPosition.top}>
             <a
               href={attackerLink}
               target="_blank"

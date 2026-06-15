@@ -61,3 +61,4 @@ erl_crash.dump
 *.njsproj
 *.sln
 *.sw?
+/.claude

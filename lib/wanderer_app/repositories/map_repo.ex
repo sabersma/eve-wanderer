@@ -27,17 +27,22 @@ defmodule WandererApp.MapRepo do
   end
 
   def get_by_slug_with_permissions(map_slug, current_user) do
-    map_slug
-    |> WandererApp.Api.Map.get_map_by_slug!()
-    |> Ash.load(
-      acls: [
-        :owner_id,
-        members: [:role, :eve_character_id, :eve_corporation_id, :eve_alliance_id]
-      ]
-    )
-    |> case do
-      {:ok, map_with_acls} -> Ash.load(map_with_acls, :user_permissions, actor: current_user)
-      error -> error
+    case get_map_by_slug_safely(map_slug) do
+      {:ok, map} ->
+        map
+        |> Ash.load(
+          acls: [
+            :owner_id,
+            members: [:role, :eve_character_id, :eve_corporation_id, :eve_alliance_id]
+          ]
+        )
+        |> case do
+          {:ok, map_with_acls} -> Ash.load(map_with_acls, :user_permissions, actor: current_user)
+          error -> error
+        end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

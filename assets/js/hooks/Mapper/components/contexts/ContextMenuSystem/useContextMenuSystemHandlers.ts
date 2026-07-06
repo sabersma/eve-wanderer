@@ -207,6 +207,21 @@ export const useContextMenuSystemHandlers = ({
     setSystem(undefined);
   }, []);
 
+  const onRearrange = useCallback(() => {
+    const { system, outCommand } = ref.current;
+    if (!system) {
+      return;
+    }
+
+    outCommand({
+      type: OutCommand.rearrangeSystems,
+      data: {
+        solar_system_id: system,
+      },
+    });
+    setSystem(undefined);
+  }, []);
+
   return {
     open,
 
@@ -222,6 +237,7 @@ export const useContextMenuSystemHandlers = ({
     onSystemLabels,
     onOpenSettings,
     onWaypointSet,
+    onRearrange,
     systemId: system,
   };
 };

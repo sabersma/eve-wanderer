@@ -21,6 +21,7 @@ export interface ContextMenuSystemProps {
   onCustomLabelDialog(): void;
   onTogglePing(type: PingType, solar_system_id: string, ping_id: string | undefined, hasPing: boolean): void;
   onWaypointSet: WaypointSetContextHandler;
+  onRearrange(): void;
 }
 
 export const ContextMenuSystem: React.FC<ContextMenuSystemProps> = ({ contextMenuRef, ...props }) => {

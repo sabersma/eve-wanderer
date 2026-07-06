@@ -214,6 +214,256 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     do_cleanup_hidden_systems(map_id)
   end
 
+  @doc """
+  Re-arrange all systems connected to the given home system using level-based layout.
+  Systems are placed in columns based on their BFS depth from home.
+  """
+  @node_w 130
+  @node_h 34
+  @margin_x 50
+  @margin_y 41
+
+  def rearrange_systems(map_id, home_solar_system_id) do
+    home =
+      map_id
+      |> WandererApp.Map.list_systems!()
+      |> Enum.find(fn sys -> sys.solar_system_id == home_solar_system_id end)
+
+    if is_nil(home) do
+      Logger.warning("[rearrange] Home system #{home_solar_system_id} not found on map #{map_id}")
+      :ok
+    else
+      current_systems =
+        map_id
+        |> WandererApp.Map.list_systems!()
+        |> Enum.reduce(%{}, fn sys, acc -> Map.put(acc, sys.solar_system_id, sys) end)
+
+      # BFS to get depths, directions, parents, branch roots, and excluded (locked) systems
+      {depths, directions, parents, branch_roots, excluded} =
+        bfs_rearrange_metadata(map_id, home, current_systems)
+
+      # Pre-calculate all positions BEFORE any updates (deterministic, no R-tree dependency)
+      positions = compute_rearrange_positions(
+        home, depths, directions, parents, branch_roots, excluded, current_systems
+      )
+
+      # Apply all positions in sorted order for stable R-tree updates
+      positions
+      |> Enum.sort_by(fn {sid, _} -> {Map.get(depths, sid), Map.get(parents, sid, sid)} end)
+      |> Enum.each(fn {solar_system_id, {new_x, new_y}} ->
+        update_system_position(map_id, %{
+          solar_system_id: solar_system_id,
+          position_x: new_x,
+          position_y: new_y
+        })
+      end)
+
+      Logger.info(
+        "[rearrange] Map #{map_id}: rearranged #{map_size(positions)} systems around home #{home_solar_system_id}"
+      )
+
+      :ok
+    end
+  end
+
+  # Pre-calculate positions for all systems without using R-tree.
+  # Each top-level branch (direct child of home) gets its own vertical region.
+  # Within a branch, systems are arranged by depth (columns) and stacked vertically.
+  defp compute_rearrange_positions(home, depths, directions, parents, branch_roots, excluded, current_systems) do
+    # Group rearrangeable (non-excluded, non-home) systems by {direction, branch_root}
+    entries =
+      depths
+      |> Enum.reject(fn {sid, _} ->
+        sid == home.solar_system_id or MapSet.member?(excluded, sid)
+      end)
+
+    grouped =
+      entries
+      |> Enum.group_by(fn {sid, _depth} ->
+        dir = Map.get(directions, sid, 1)
+        branch = Map.get(branch_roots, sid, sid)
+        {dir, branch}
+      end)
+
+    # Process each direction separately
+    {right_groups, left_groups} =
+      grouped
+      |> Enum.split_with(fn {{dir, _branch}, _} -> dir == 1 end)
+
+    right_positions = compute_side_positions(home, 1, right_groups, depths, parents, current_systems)
+    left_positions = compute_side_positions(home, -1, left_groups, depths, parents, current_systems)
+
+    Map.merge(right_positions, left_positions)
+  end
+
+  defp compute_side_positions(home, direction, side_groups, depths, parents, _current_systems) do
+    # Sort branches by branch_root id for deterministic order
+    sorted_groups =
+      side_groups
+      |> Enum.sort_by(fn {{_dir, branch_root}, _} -> branch_root end)
+
+    spacing_x = @node_w + @margin_x
+    spacing_y = @node_h + @margin_y
+
+    # Calculate total height needed: sum of each branch's max depth width * spacing
+    branch_heights =
+      sorted_groups
+      |> Enum.map(fn {{_dir, _branch}, systems} ->
+        # Max number of systems at any single depth within this branch
+        max_per_depth =
+          systems
+          |> Enum.group_by(fn {sid, _} -> Map.get(depths, sid) end)
+          |> Enum.map(fn {_d, ss} -> length(ss) end)
+          |> Enum.max(fn -> 0 end)
+
+        max_per_depth * spacing_y + @margin_y
+      end)
+
+    total_height = Enum.sum(branch_heights)
+
+    # Start y from home_y - half total height
+    start_y = home.position_y - div(total_height, 2)
+
+    # Assign positions for each branch
+    {_current_y, positions} =
+      Enum.reduce(Enum.zip(sorted_groups, branch_heights), {start_y, %{}}, fn
+        {{{_dir, _branch}, systems}, branch_h}, {base_y, acc} ->
+          # Within this branch, group by depth
+          by_depth =
+            systems
+            |> Enum.group_by(fn {sid, _} -> Map.get(depths, sid) end)
+            |> Enum.sort_by(fn {d, _} -> d end)
+
+          # Find max count at any depth for vertical centering within branch
+          max_count =
+            by_depth
+            |> Enum.map(fn {_d, ss} -> length(ss) end)
+            |> Enum.max(fn -> 0 end)
+
+          branch_center_y = base_y + div(branch_h, 2)
+
+          {base_y + branch_h,
+           Enum.reduce(by_depth, acc, fn {depth, depth_systems}, inner_acc ->
+             # Sort systems at this depth by parent_id for consistency
+             sorted = Enum.sort_by(depth_systems, fn {sid, _} -> Map.get(parents, sid, sid) end)
+             count = length(sorted)
+
+             # Center this depth's systems vertically within the branch
+             depth_start_y = branch_center_y - div(count * spacing_y, 2)
+
+             Enum.reduce(Enum.with_index(sorted), inner_acc, fn {{sid, _depth}, idx}, acc2 ->
+               x = home.position_x + direction * depth * spacing_x
+               y = depth_start_y + idx * spacing_y
+               Map.put(acc2, sid, {x, y})
+             end)
+           end)}
+      end)
+
+    positions
+  end
+
+  # BFS from home, tracking depth, direction, parent, branch_root, and locked/excluded systems.
+  # branch_root = for direct children of home, it's themselves; for others, inherited from parent.
+  # Direction is determined by the first hop from home and propagated to all descendants.
+  # Locked systems (and their subtrees) are excluded.
+  defp bfs_rearrange_metadata(map_id, home, current_systems) do
+    connections = WandererApp.Map.list_connections!(map_id)
+    all_system_ids =
+      map_id
+      |> WandererApp.Map.list_systems!()
+      |> Enum.map(& &1.solar_system_id)
+      |> MapSet.new()
+
+    adjacency =
+      connections
+      |> Enum.reduce(%{}, fn conn, acc ->
+        acc
+        |> Map.update(conn.solar_system_source, [conn.solar_system_target], fn ex ->
+          [conn.solar_system_target | ex]
+        end)
+        |> Map.update(conn.solar_system_target, [conn.solar_system_source], fn ex ->
+          [conn.solar_system_source | ex]
+        end)
+      end)
+
+    home_id = home.solar_system_id
+
+    bfs = fn bfs_fn, queue, visited, depths, directions, parents, branch_roots, excluded ->
+      case :queue.out(queue) do
+        {{:value, {current_id, direction, branch_root}}, rest} ->
+          current_depth = Map.get(depths, current_id, 0)
+          current_sys = Map.get(current_systems, current_id)
+
+          is_locked = not is_nil(current_sys) and Map.get(current_sys, :locked, false)
+          is_home = current_id == home_id
+          exclude_this = not is_home and is_locked
+          already_excluded = MapSet.member?(excluded, current_id)
+          skip_subtree = exclude_this or already_excluded
+
+          neighbors = Map.get(adjacency, current_id, [])
+
+          {new_queue, new_visited, new_depths, new_directions, new_parents, new_branch_roots, new_excluded} =
+            Enum.reduce(neighbors, {rest, visited, depths, directions, parents, branch_roots, excluded},
+              fn neighbor, {q, v, d, dirs, pars, brs, excl} ->
+                if MapSet.member?(v, neighbor) or not MapSet.member?(all_system_ids, neighbor) do
+                  {q, v, d, dirs, pars, brs, excl}
+                else
+                  new_visited = MapSet.put(v, neighbor)
+                  new_depth = current_depth + 1
+
+                  # Direction: from home → current position; otherwise → inherit
+                  new_dir =
+                    if is_home do
+                      neighbor_sys = Map.get(current_systems, neighbor)
+                      if not is_nil(neighbor_sys) and neighbor_sys.position_x >= home.position_x, do: 1, else: -1
+                    else
+                      direction
+                    end
+
+                  # Branch root: for direct children of home → themselves; otherwise → inherit
+                  new_branch =
+                    if is_home do
+                      neighbor
+                    else
+                      branch_root
+                    end
+
+                  if skip_subtree do
+                    {:queue.in({neighbor, new_dir, new_branch}, q), new_visited,
+                     Map.put(d, neighbor, new_depth),
+                     Map.put(dirs, neighbor, new_dir),
+                     Map.put(pars, neighbor, current_id),
+                     Map.put(brs, neighbor, new_branch),
+                     MapSet.put(excl, neighbor)}
+                  else
+                    {:queue.in({neighbor, new_dir, new_branch}, q), new_visited,
+                     Map.put(d, neighbor, new_depth),
+                     Map.put(dirs, neighbor, new_dir),
+                     Map.put(pars, neighbor, current_id),
+                     Map.put(brs, neighbor, new_branch),
+                     excl}
+                  end
+                end
+              end)
+
+          bfs_fn.(bfs_fn, new_queue, new_visited, new_depths, new_directions, new_parents, new_branch_roots, new_excluded)
+
+        {:empty, _} ->
+          {depths, directions, parents, branch_roots, excluded}
+      end
+    end
+
+    queue = :queue.from_list([{home_id, 1, nil}])
+    visited = MapSet.new([home_id])
+    depths = %{home_id => 0}
+    directions = %{}
+    parents = %{}
+    branch_roots = %{}
+    excluded = MapSet.new()
+
+    bfs.(bfs, queue, visited, depths, directions, parents, branch_roots, excluded)
+  end
+
   defp do_cleanup_hidden_systems(map_id) do
     cutoff_time = DateTime.utc_now() |> DateTime.add(-@hidden_system_expire_hours, :hour)
 
@@ -1141,7 +1391,119 @@ defmodule WandererApp.Map.Server.SystemsImpl do
       {:ok,
        map_id
        |> WandererApp.Map.find_system_by_location(old_location)
-       |> WandererApp.Map.PositionCalculator.get_new_system_position(rtree_name, opts)}
+       |> calc_position_for_system(map_id, old_location, rtree_name, opts)}
+
+  # Calculate position for a new system. If there is a home system, use level-based
+  # layout; otherwise fall back to the spiral algorithm.
+  defp calc_position_for_system(nil, map_id, _old_location, rtree_name, opts) do
+    # No anchor system — use home-based layout if available, else default spiral
+    case find_home_system(map_id) do
+      nil -> WandererApp.Map.PositionCalculator.get_new_system_position(nil, rtree_name, opts)
+      home -> WandererApp.Map.PositionCalculator.get_level_position(home.position_x, home.position_y, 0, 1, rtree_name)
+               |> then(fn {x, y} -> %{x: x, y: y} end)
+    end
+  end
+
+  defp calc_position_for_system(anchor_system, map_id, _old_location, rtree_name, opts) do
+    case find_home_system(map_id) do
+      nil ->
+        # No home system: use existing spiral algorithm
+        WandererApp.Map.PositionCalculator.get_new_system_position(anchor_system, rtree_name, opts)
+
+      home ->
+        # Home exists: compute BFS depth and use level-based layout.
+        # Determine direction based on the anchor system's position relative to home,
+        # so new systems stay on the same side as their parent.
+        depths = bfs_depths_from_home(map_id, home.solar_system_id)
+        parent_depth = Map.get(depths, anchor_system.solar_system_id, 0)
+        new_depth = parent_depth + 1
+
+        direction = if anchor_system.position_x >= home.position_x, do: 1, else: -1
+
+        {x, y} = WandererApp.Map.PositionCalculator.get_level_position(
+          home.position_x, home.position_y, new_depth, direction, rtree_name
+        )
+
+        %{x: x, y: y}
+    end
+  end
+
+  # Find the home system on the map (status == 1)
+  defp find_home_system(map_id) do
+    map_id
+    |> WandererApp.Map.list_systems!()
+    |> Enum.find(fn sys -> Map.get(sys, :status) == 1 and Map.get(sys, :visible, true) end)
+  end
+
+  # BFS from home to compute depth (number of jumps) for each connected system
+  defp bfs_depths_from_home(map_id, home_solar_system_id) do
+    connections = WandererApp.Map.list_connections!(map_id)
+    all_system_ids =
+      map_id
+      |> WandererApp.Map.list_systems!()
+      |> Enum.map(& &1.solar_system_id)
+      |> MapSet.new()
+
+    # Build bidirectional adjacency
+    adjacency =
+      connections
+      |> Enum.reduce(%{}, fn conn, acc ->
+        acc
+        |> Map.update(conn.solar_system_source, [conn.solar_system_target], fn ex ->
+          [conn.solar_system_target | ex]
+        end)
+        |> Map.update(conn.solar_system_target, [conn.solar_system_source], fn ex ->
+          [conn.solar_system_source | ex]
+        end)
+      end)
+
+    # BFS
+    bfs = fn bfs_fn, queue, visited, depths ->
+      case :queue.out(queue) do
+        {{:value, current_id}, rest} ->
+          current_depth = Map.get(depths, current_id, 0)
+          neighbors = Map.get(adjacency, current_id, [])
+
+          {new_queue, new_visited, new_depths} =
+            Enum.reduce(neighbors, {rest, visited, depths}, fn neighbor, {q, v, d} ->
+              if MapSet.member?(v, neighbor) or not MapSet.member?(all_system_ids, neighbor) do
+                {q, v, d}
+              else
+                {:queue.in(neighbor, q), MapSet.put(v, neighbor),
+                 Map.put(d, neighbor, current_depth + 1)}
+              end
+            end)
+
+          bfs_fn.(bfs_fn, new_queue, new_visited, new_depths)
+
+        {:empty, _} ->
+          depths
+      end
+    end
+
+    queue = :queue.from_list([home_solar_system_id])
+    visited = MapSet.new([home_solar_system_id])
+    depths = %{home_solar_system_id => 0}
+
+    bfs.(bfs, queue, visited, depths)
+  end
+
+  # Choose direction: count systems on each side of home and pick the less crowded side
+  defp choose_direction(map_id, home) do
+    {left_count, right_count} =
+      map_id
+      |> WandererApp.Map.list_systems!()
+      |> Enum.filter(&Map.get(&1, :visible, true))
+      |> Enum.reduce({0, 0}, fn sys, {left, right} ->
+        cond do
+          sys.position_x < home.position_x -> {left + 1, right}
+          sys.position_x > home.position_x -> {left, right + 1}
+          true -> {left, right}
+        end
+      end)
+
+    if right_count <= left_count, do: 1, else: -1
+  end
 
   defp update_system(
          map_id,

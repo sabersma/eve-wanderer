@@ -349,6 +349,19 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
   end
 
   def handle_ui_event(
+        "rearrange_systems",
+        %{"solar_system_id" => solar_system_id},
+        %{assigns: %{map_id: map_id}} = socket
+      ) do
+    WandererApp.Map.Server.SystemsImpl.rearrange_systems(
+      map_id,
+      String.to_integer(solar_system_id)
+    )
+
+    {:noreply, socket}
+  end
+
+  def handle_ui_event(
         "get_system_last_modified",
         %{"solar_system_id" => solar_system_id},
         %{assigns: %{map_id: map_id}} = socket

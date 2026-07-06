@@ -119,4 +119,49 @@ defmodule WandererApp.Map.PositionCalculator do
       }
     end)
   end
+
+  @doc """
+  Finds an available vertical position at a specific x-coordinate (level column).
+  Searches outward from start_y, alternating above and below.
+  Returns {x, y} pixel coordinates.
+  """
+  def find_available_vertical_position(x, start_y, rtree_name) do
+    find_vertical_position(x, start_y, 0, rtree_name)
+  end
+
+  defp find_vertical_position(x, start_y, offset, rtree_name) when offset > 500, do: {x, start_y}
+
+  defp find_vertical_position(x, start_y, offset, rtree_name) do
+    candidates =
+      if offset == 0 do
+        [{x, start_y}]
+      else
+        [
+          {x, start_y - offset * (@h + @m_y)},
+          {x, start_y + offset * (@h + @m_y)}
+        ]
+      end
+
+    case Enum.find(candidates, fn pos -> is_available_position(pos, rtree_name) end) do
+      nil -> find_vertical_position(x, start_y, offset + 1, rtree_name)
+      pos -> pos
+    end
+  end
+
+  @doc """
+  Calculates a level-based position for a system at the given depth from home.
+  direction: 1 for right, -1 for left
+  depth: number of jumps from home (home depth = 0)
+  Returns {x, y} pixel coordinates.
+  """
+  def get_level_position(home_x, home_y, depth, direction, rtree_name) do
+    x = home_x + direction * depth * (@w + @m_x)
+
+    # At depth 0 (home itself), just return home position
+    if depth == 0 do
+      {home_x, home_y}
+    else
+      find_available_vertical_position(x, home_y, rtree_name)
+    end
+  end
 end

@@ -17,6 +17,7 @@ import { isWormholeSpace } from '@/hooks/Mapper/components/map/helpers/isWormhol
 import { getSystemStaticInfo } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic';
 import { MapAddIcon, MapDeleteIcon } from '@/hooks/Mapper/icons';
 import { PingType } from '@/hooks/Mapper/types';
+import { STATUSES } from '@/hooks/Mapper/components/map/constants.ts';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import clsx from 'clsx';
 import { MenuItem } from 'primereact/menuitem';
@@ -34,6 +35,7 @@ export const useContextMenuSystemItems = ({
   onCustomLabelDialog,
   onOpenSettings,
   onWaypointSet,
+  onRearrange,
   systemId,
   hubs,
   userHubs,
@@ -96,6 +98,15 @@ export const useContextMenuSystemItems = ({
       getStatus(),
       ...getLabels(),
       ...getWaypointMenu(systemId, systemStaticInfo.system_class),
+      ...(system.status === STATUSES.home
+        ? [
+            {
+              label: 'Re-arrange layout',
+              icon: PrimeIcons.REFRESH,
+              command: onRearrange,
+            },
+          ]
+        : []),
       {
         label: !hubs.includes(systemId) ? 'Add Route' : 'Remove Route',
         icon: !hubs.includes(systemId) ? (
@@ -200,5 +211,6 @@ export const useContextMenuSystemItems = ({
     onTogglePing,
     ping,
     isShowPingBtn,
+    onRearrange,
   ]);
 };

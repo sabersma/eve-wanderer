@@ -1494,24 +1494,65 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   defp calc_position_for_system(anchor_system, map_id, _old_location, rtree_name, opts) do
     case find_home_system(map_id) do
       nil ->
-        # No home system: use existing spiral algorithm
         WandererApp.Map.PositionCalculator.get_new_system_position(anchor_system, rtree_name, opts)
 
       home ->
-        # Home exists: compute BFS depth and use level-based layout.
-        # Determine direction based on the anchor system's position relative to home,
-        # so new systems stay on the same side as their parent.
-        depths = bfs_depths_from_home(map_id, home.solar_system_id)
+        # Home exists: use full BFS metadata for branch-aware, parent-aligned positioning.
+        current_systems =
+          map_id
+          |> WandererApp.Map.list_systems!()
+          |> Enum.reduce(%{}, fn sys, acc -> Map.put(acc, sys.solar_system_id, sys) end)
+
+        {depths, _directions, parents, branch_roots, _excluded} =
+          bfs_rearrange_metadata(map_id, home, current_systems)
+
         parent_depth = Map.get(depths, anchor_system.solar_system_id, 0)
         new_depth = parent_depth + 1
 
         direction = if anchor_system.position_x >= home.position_x, do: 1, else: -1
 
-        {x, y} = WandererApp.Map.PositionCalculator.get_level_position(
-          home.position_x, home.position_y, new_depth, direction, rtree_name
-        )
+        x = home.position_x + direction * new_depth * (@node_w + @margin_x)
 
-        %{x: x, y: y}
+        # Compute Y using branch-aware parent alignment (same logic as rearrange).
+        # Collect other visible systems at the same depth in the same branch,
+        # sorted by their parent's Y.
+        new_branch_root = Map.get(branch_roots, anchor_system.solar_system_id, anchor_system.solar_system_id)
+        spacing_y = @node_h + @margin_y
+
+        sibling_ys =
+          depths
+          |> Enum.filter(fn {sid, d} ->
+            d == new_depth and
+              Map.get(branch_roots, sid) == new_branch_root and
+              Map.get(current_systems, sid) |> then(&(not is_nil(&1) and Map.get(&1, :visible, true)))
+          end)
+          |> Enum.sort_by(fn {sid, _} ->
+            pid = Map.get(parents, sid, sid)
+            parent_pos = Map.get(current_systems, pid)
+            if not is_nil(parent_pos), do: {parent_pos.position_y, pid}, else: {home.position_y, pid}
+          end)
+          |> Enum.map(fn {sid, _} -> Map.get(current_systems, sid).position_y end)
+
+        # Ideal Y = parent's Y for horizontal alignment
+        ideal_y = anchor_system.position_y
+
+        y = find_closest_y(ideal_y, Enum.map(sibling_ys, &{&1, nil}), spacing_y)
+
+        # Verify the position is available in R-tree; fall back to spiral if blocked
+        candidate_pos = %{position_x: x, position_y: y}
+        bounding_rect = WandererApp.Map.PositionCalculator.get_system_bounding_rect(candidate_pos)
+
+        case @ddrt.query(bounding_rect, rtree_name) do
+          {:ok, []} ->
+            %{x: x, y: y}
+
+          _ ->
+            # Position blocked, fall back to level-position which scans for alternatives
+            {fx, fy} = WandererApp.Map.PositionCalculator.get_level_position(
+              home.position_x, home.position_y, new_depth, direction, rtree_name
+            )
+            %{x: fx, y: fy}
+        end
     end
   end
 

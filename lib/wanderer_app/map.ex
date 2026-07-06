@@ -328,6 +328,57 @@ defmodule WandererApp.Map do
     end
   end
 
+  @doc """
+  Like find_system_by_location but does NOT filter by visible: true.
+  Used for auto-hide/unhide logic that needs to inspect hidden systems.
+  """
+  def find_system_by_location_any(_map_id, nil), do: nil
+
+  def find_system_by_location_any(map_id, %{solar_system_id: solar_system_id} = _location) do
+    case map_id |> get_map!() |> Map.get(:systems, Map.new()) |> Map.get(solar_system_id) do
+      nil -> nil
+      system -> system
+    end
+  end
+
+  @doc """
+  Updates the visible field on a system in the map cache.
+  """
+  def update_system_visibility(map_id, solar_system_id, visible) when is_boolean(visible) do
+    systems = map_id |> get_map!() |> Map.get(:systems, Map.new())
+
+    case systems |> Map.get(solar_system_id) do
+      nil ->
+        :ok
+
+      system ->
+        updated_system = Map.put(system, :visible, visible)
+        map_id |> update_map(%{systems: Map.put(systems, solar_system_id, updated_system)})
+        :ok
+    end
+  end
+
+  @doc """
+  Updates the position of a system in the map cache.
+  """
+  def update_system_cache_position(map_id, solar_system_id, position_x, position_y) do
+    systems = map_id |> get_map!() |> Map.get(:systems, Map.new())
+
+    case systems |> Map.get(solar_system_id) do
+      nil ->
+        :ok
+
+      system ->
+        updated_system =
+          system
+          |> Map.put(:position_x, position_x)
+          |> Map.put(:position_y, position_y)
+
+        map_id |> update_map(%{systems: Map.put(systems, solar_system_id, updated_system)})
+        :ok
+    end
+  end
+
   def check_connection(
         map_id,
         %{solar_system_id: solar_system_id} = _location,

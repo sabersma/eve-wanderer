@@ -218,6 +218,8 @@ defmodule WandererApp.Map.Server.Impl do
 
   defdelegate cleanup_systems(map_id), to: SystemsImpl
   defdelegate cleanup_connections(map_id), to: ConnectionsImpl
+  defdelegate maybe_auto_hide_orphaned_systems(map_id, source_id, target_id), to: ConnectionsImpl
+  defdelegate maybe_unhide_connected_systems(map_id, solar_system_id), to: ConnectionsImpl
   defdelegate cleanup_characters(map_id), to: CharactersImpl
   defdelegate untrack_characters(map_id, characters_ids), to: CharactersImpl
   defdelegate add_system(map_id, system_info, user_id, character_id, opts \\ []), to: SystemsImpl

@@ -719,6 +719,10 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
           solar_system_target_id: location.solar_system_id
         })
 
+        # Unhide any hidden systems that the connection now makes reachable
+        maybe_unhide_if_hidden(map_id, old_location.solar_system_id)
+        maybe_unhide_if_hidden(map_id, location.solar_system_id)
+
         :ok
 
       {:error, :already_exists} ->
@@ -1020,6 +1024,9 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
            old_location.solar_system_id
          ) do
       {:ok, connection} when not is_nil(connection) ->
+        source_id = location.solar_system_id
+        target_id = old_location.solar_system_id
+
         :ok = WandererApp.MapConnectionRepo.destroy(map_id, connection)
 
         Impl.broadcast!(map_id, :remove_connections, [connection])
@@ -1028,8 +1035,8 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
         # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
         WandererApp.ExternalEvents.broadcast(map_id, :connection_removed, %{
           connection_id: connection.id,
-          solar_system_source_id: location.solar_system_id,
-          solar_system_target_id: old_location.solar_system_id
+          solar_system_source_id: source_id,
+          solar_system_target_id: target_id
         })
 
         WandererApp.Cache.delete("map_#{map_id}:conn_#{connection.id}:start_time")
@@ -1037,9 +1044,12 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
         # Clear linked_sig_eve_id on target system when connection is deleted
         # This ensures old signatures become orphaned and won't affect future connections
         SystemsImpl.update_system_linked_sig_eve_id(map_id, %{
-          solar_system_id: location.solar_system_id,
+          solar_system_id: source_id,
           linked_sig_eve_id: nil
         })
+
+        # Auto-hide orphaned systems that have no characters, home, or friendly status
+        maybe_auto_hide_orphaned_systems(map_id, source_id, target_id)
 
       _error ->
         :ok
@@ -1047,6 +1057,404 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
   end
 
   defp maybe_remove_connection(_map_id, _location, _old_location), do: :ok
+
+  # Auto-hide orphaned systems after a connection is deleted.
+  # If one side of the deleted connection has no characters and no home/friendly/locked systems,
+  # that entire disconnected component is hidden (systems marked visible: false).
+  @doc false
+  def maybe_auto_hide_orphaned_systems(map_id, source_solar_system_id, target_solar_system_id) do
+    # Build adjacency from remaining connections (all systems, visible or not)
+    all_connections = WandererApp.Map.list_connections!(map_id)
+    adjacency = build_connection_adjacency(all_connections)
+
+    all_system_ids =
+      map_id
+      |> WandererApp.Map.list_systems!()
+      |> Enum.map(& &1.solar_system_id)
+      |> MapSet.new()
+
+    # Collect all character positions once for efficiency
+    all_characters = map_id |> WandererApp.Map.list_characters()
+    character_system_ids =
+      all_characters
+      |> Enum.map(& &1.solar_system_id)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    # For each side of the deleted connection, check the connected component
+    visited = MapSet.new()
+    {comp1, visited} = get_connected_component(source_solar_system_id, adjacency, all_system_ids, visited)
+    {comp2, _visited} = get_connected_component(target_solar_system_id, adjacency, all_system_ids, visited)
+
+    Enum.each([comp1, comp2], fn component_ids ->
+      if MapSet.size(component_ids) > 0 and
+           should_hide_component?(map_id, component_ids, character_system_ids) do
+        hide_component_systems(map_id, component_ids, all_connections)
+      end
+    end)
+
+    :ok
+  end
+
+  @doc false
+  def maybe_unhide_connected_systems(map_id, solar_system_id) do
+    # Build adjacency from ALL systems (visible and hidden) and all connections
+    all_systems = map_id |> WandererApp.Map.list_systems!()
+    cache_connections = WandererApp.Map.list_connections!(map_id)
+
+    all_system_ids = all_systems |> Enum.map(& &1.solar_system_id) |> MapSet.new()
+
+    # Build a map of system_id -> system for quick lookup
+    systems_map =
+      all_systems
+      |> Enum.reduce(%{}, fn sys, acc -> Map.put(acc, sys.solar_system_id, sys) end)
+
+    # Merge cache connections with DB connections to get the full adjacency.
+    # Hidden components have their internal connections removed from cache,
+    # so we must query the DB to find them for BFS traversal.
+    db_connections =
+      case WandererApp.MapConnectionRepo.get_by_map(map_id) do
+        {:ok, conns} -> conns
+        _ -> []
+      end
+
+    all_connections =
+      (cache_connections ++ db_connections)
+      |> Enum.uniq_by(&"#{&1.solar_system_source}_#{&1.solar_system_target}")
+
+    adjacency = build_connection_adjacency(all_connections)
+
+    # BFS through only hidden systems starting from solar_system_id
+    # Stop at visible systems (they're already on the map)
+    hidden_component = bfs_hidden_component(solar_system_id, adjacency, systems_map, all_system_ids)
+
+    if MapSet.size(hidden_component) > 0 do
+      unhide_component_systems(map_id, hidden_component, systems_map, all_connections)
+    end
+
+    :ok
+  end
+
+  # Check if a system is hidden and unhide its connected component if so
+  defp maybe_unhide_if_hidden(map_id, solar_system_id) do
+    system =
+      WandererApp.Map.find_system_by_location_any(map_id, %{solar_system_id: solar_system_id})
+
+    if not is_nil(system) and Map.get(system, :visible, true) == false do
+      maybe_unhide_connected_systems(map_id, solar_system_id)
+    end
+  end
+
+  defp build_connection_adjacency(connections) do
+    connections
+    |> Enum.reduce(%{}, fn conn, acc ->
+      acc
+      |> Map.update(conn.solar_system_source, [conn.solar_system_target], fn existing ->
+        [conn.solar_system_target | existing]
+      end)
+      |> Map.update(conn.solar_system_target, [conn.solar_system_source], fn existing ->
+        [conn.solar_system_source | existing]
+      end)
+    end)
+  end
+
+  defp get_connected_component(start_id, adjacency, all_system_ids, visited) do
+    if MapSet.member?(visited, start_id) or not MapSet.member?(all_system_ids, start_id) do
+      {MapSet.new(), visited}
+    else
+      queue = :queue.from_list([start_id])
+      visited = MapSet.put(visited, start_id)
+      component = MapSet.new([start_id])
+
+      {component, visited} = bfs_collect(queue, visited, component, adjacency)
+
+      {component, visited}
+    end
+  end
+
+  defp bfs_collect(queue, visited, component, adjacency) do
+    case :queue.out(queue) do
+      {{:value, current}, rest_queue} ->
+        neighbors = Map.get(adjacency, current, [])
+
+        {new_queue, new_visited, new_component} =
+          Enum.reduce(neighbors, {rest_queue, visited, component}, fn neighbor,
+                                                                     {q, v, comp} ->
+            if MapSet.member?(v, neighbor) do
+              {q, v, comp}
+            else
+              {:queue.in(neighbor, q), MapSet.put(v, neighbor), MapSet.put(comp, neighbor)}
+            end
+          end)
+
+        bfs_collect(new_queue, new_visited, new_component, adjacency)
+
+      {:empty, _} ->
+        {component, visited}
+    end
+  end
+
+  # BFS through only hidden systems (visible: false)
+  defp bfs_hidden_component(start_id, adjacency, systems_map, _all_system_ids) do
+    start_system = Map.get(systems_map, start_id)
+
+    # If the start system is already visible, no hidden component to find
+    if is_nil(start_system) or Map.get(start_system, :visible, true) do
+      MapSet.new()
+    else
+      queue = :queue.from_list([start_id])
+      visited = MapSet.new([start_id])
+      component = MapSet.new([start_id])
+
+      {component, _visited} = bfs_hidden_collect(queue, visited, component, adjacency, systems_map)
+      component
+    end
+  end
+
+  defp bfs_hidden_collect(queue, visited, component, adjacency, systems_map) do
+    case :queue.out(queue) do
+      {{:value, current}, rest_queue} ->
+        neighbors = Map.get(adjacency, current, [])
+
+        {new_queue, new_visited, new_component} =
+          Enum.reduce(neighbors, {rest_queue, visited, component}, fn neighbor,
+                                                                     {q, v, comp} ->
+            if MapSet.member?(v, neighbor) do
+              {q, v, comp}
+            else
+              neighbor_sys = Map.get(systems_map, neighbor)
+              neighbor_visible = is_nil(neighbor_sys) or Map.get(neighbor_sys, :visible, true)
+
+              if neighbor_visible do
+                # Stop at visible systems
+                {q, MapSet.put(v, neighbor), comp}
+              else
+                # Continue into hidden systems
+                {:queue.in(neighbor, q), MapSet.put(v, neighbor), MapSet.put(comp, neighbor)}
+              end
+            end
+          end)
+
+        bfs_hidden_collect(new_queue, new_visited, new_component, adjacency, systems_map)
+
+      {:empty, _} ->
+        {component, visited}
+    end
+  end
+
+  defp should_hide_component?(map_id, component_ids, character_system_ids) do
+    # Don't hide if any character is present in the component
+    has_character =
+      component_ids
+      |> Enum.any?(fn id -> MapSet.member?(character_system_ids, id) end)
+
+    not has_character and
+      component_ids
+      |> Enum.all?(fn solar_system_id ->
+        system = WandererApp.Map.find_system_by_location_any(map_id, %{solar_system_id: solar_system_id})
+
+        # If system not found, don't hide (safety)
+        if is_nil(system) do
+          false
+        else
+          # Don't hide if system is locked, home (status=1), or friendly (status=2)
+          status = Map.get(system, :status, 0)
+          locked = Map.get(system, :locked, false)
+
+          not locked and status != 1 and status != 2
+        end
+      end)
+  end
+
+  defp hide_component_systems(map_id, component_ids, _all_connections) do
+    # Get fresh connection list (after the deleted one was already removed)
+    remaining_connections = WandererApp.Map.list_connections!(map_id)
+
+    # Find connections that have BOTH endpoints in the component being hidden
+    internal_connections =
+      remaining_connections
+      |> Enum.filter(fn conn ->
+        MapSet.member?(component_ids, conn.solar_system_source) and
+          MapSet.member?(component_ids, conn.solar_system_target)
+      end)
+
+    # Remove internal connections from cache and broadcast
+    Enum.each(internal_connections, fn conn ->
+      WandererApp.Map.remove_connection(map_id, conn)
+    end)
+
+    if not Enum.empty?(internal_connections) do
+      Impl.broadcast!(map_id, :remove_connections, internal_connections)
+    end
+
+    # Mark systems as hidden in DB and cache
+    solar_system_ids = MapSet.to_list(component_ids)
+
+    Enum.each(solar_system_ids, fn solar_system_id ->
+      # Update DB
+      case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, solar_system_id) do
+        {:ok, system} when not is_nil(system) ->
+          WandererApp.MapSystemRepo.update_visible!(system, %{visible: false})
+
+        _ ->
+          :ok
+      end
+
+      # Update cache
+      WandererApp.Map.update_system_visibility(map_id, solar_system_id, false)
+    end)
+
+    # Broadcast systems_removed to frontend
+    Impl.broadcast!(map_id, :systems_removed, solar_system_ids)
+
+    # Log auto-hide for audit
+    Logger.info(
+      "[auto-hide] Map #{map_id}: hid #{length(solar_system_ids)} systems and #{length(internal_connections)} connections"
+    )
+  end
+
+  defp unhide_component_systems(map_id, component_ids, systems_map, all_connections) do
+    solar_system_ids = MapSet.to_list(component_ids)
+
+    # Find "bridge connections": connections between visible systems (outside the component)
+    # and hidden systems (inside the component). These are the reconnection entry points.
+    bridge_connections =
+      all_connections
+      |> Enum.filter(fn conn ->
+        source_hidden = MapSet.member?(component_ids, conn.solar_system_source)
+        target_hidden = MapSet.member?(component_ids, conn.solar_system_target)
+        # One side is hidden (inside component), the other is visible (outside)
+        (source_hidden and not target_hidden) or (target_hidden and not source_hidden)
+      end)
+
+    # Calculate new positions for systems in the component.
+    # For each bridge connection, reposition the hidden endpoint near the visible endpoint.
+    reposition_map =
+      if not Enum.empty?(bridge_connections) do
+        # Find the first bridge connection to use as anchor
+        first_bridge = List.first(bridge_connections)
+
+        {visible_system_id, hidden_system_id} =
+          if MapSet.member?(component_ids, first_bridge.solar_system_source) do
+            {first_bridge.solar_system_target, first_bridge.solar_system_source}
+          else
+            {first_bridge.solar_system_source, first_bridge.solar_system_target}
+          end
+
+        visible_system = Map.get(systems_map, visible_system_id)
+        hidden_system = Map.get(systems_map, hidden_system_id)
+
+        if not is_nil(visible_system) and not is_nil(hidden_system) do
+          # Calculate deterministic offset: position the hidden system near the visible system.
+          # Use a fixed horizontal offset (150px) so the result is stable across unhide calls.
+          offset_x = visible_system.position_x + 150 - hidden_system.position_x
+          offset_y = visible_system.position_y - hidden_system.position_y
+
+          # Apply the same offset to all systems in the component
+          solar_system_ids
+          |> Enum.map(fn sid ->
+            sys = Map.get(systems_map, sid)
+            if is_nil(sys) do
+              {sid, nil}
+            else
+              {sid, %{position_x: sys.position_x + offset_x, position_y: sys.position_y + offset_y}}
+            end
+          end)
+          |> Enum.reject(fn {_sid, pos} -> is_nil(pos) end)
+          |> Enum.into(%{})
+        else
+          %{}
+        end
+      else
+        %{}
+      end
+
+    # Make systems visible in DB, update positions if needed, then broadcast
+    systems_to_broadcast =
+      Enum.map(solar_system_ids, fn solar_system_id ->
+        case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, solar_system_id) do
+          {:ok, system} when not is_nil(system) ->
+            # Update position first if this system needs repositioning
+            system =
+              case Map.get(reposition_map, solar_system_id) do
+                nil -> system
+                pos -> WandererApp.MapSystemRepo.update_position!(system, pos)
+              end
+
+            # Make system visible
+            updated = WandererApp.MapSystemRepo.update_visible!(system, %{visible: true})
+
+            # Update cache visibility
+            WandererApp.Map.update_system_visibility(map_id, solar_system_id, true)
+
+            # Update cache position if this system was repositioned
+            if Map.has_key?(reposition_map, solar_system_id) do
+              WandererApp.Map.update_system_cache_position(
+                map_id,
+                solar_system_id,
+                updated.position_x,
+                updated.position_y
+              )
+            end
+
+            updated
+
+          _ ->
+            nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    # Broadcast add_system for each unhidden system
+    Enum.each(systems_to_broadcast, fn system ->
+      Impl.broadcast!(map_id, :add_system, system)
+    end)
+
+    # Find internal connections from all_connections (both endpoints in the component)
+    # and bridge connections, excluding those already in the cache.
+    existing_connection_keys =
+      WandererApp.Map.list_connections!(map_id)
+      |> Enum.flat_map(fn conn ->
+        # Check both directions
+        ["#{conn.solar_system_source}_#{conn.solar_system_target}",
+         "#{conn.solar_system_target}_#{conn.solar_system_source}"]
+      end)
+      |> MapSet.new()
+
+    connections_to_restore =
+      all_connections
+      |> Enum.filter(fn conn ->
+        source_in_component = MapSet.member?(component_ids, conn.solar_system_source)
+        target_in_component = MapSet.member?(component_ids, conn.solar_system_target)
+
+        # At least one endpoint is in the unhidden component
+        (source_in_component or target_in_component) and
+          # Both endpoints exist in systems_map
+          Map.has_key?(systems_map, conn.solar_system_source) and
+          Map.has_key?(systems_map, conn.solar_system_target)
+      end)
+      |> Enum.reject(fn conn ->
+        # Skip connections already in the cache (check both directions)
+        MapSet.member?(
+          existing_connection_keys,
+          "#{conn.solar_system_source}_#{conn.solar_system_target}"
+        ) or
+        MapSet.member?(
+          existing_connection_keys,
+          "#{conn.solar_system_target}_#{conn.solar_system_source}"
+        )
+      end)
+
+    Enum.each(connections_to_restore, fn conn ->
+      WandererApp.Map.add_connection(map_id, conn)
+      # Broadcast each connection individually to match LiveView handler expectations
+      Impl.broadcast!(map_id, :add_connection, conn)
+    end)
+
+    Logger.info(
+      "[auto-unhide] Map #{map_id}: unhid #{length(solar_system_ids)} systems and restored #{length(connections_to_restore)} connections"
+    )
+  end
 
   defp update_connection(
          map_id,

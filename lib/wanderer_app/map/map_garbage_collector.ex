@@ -41,5 +41,35 @@ defmodule WandererApp.Map.GarbageCollector do
     :ok
   end
 
+  @doc """
+  Clean up orphaned connections — connections whose source or target system
+  no longer exists in the database (e.g., the system was deleted after being hidden).
+  """
+  def cleanup_orphaned_connections() do
+    Logger.info("Start cleanup orphaned connections...")
+
+    # Collect all existing solar_system_ids from the map_system table
+    existing_system_ids =
+      WandererApp.Api.MapSystem
+      |> Ash.read!()
+      |> Enum.map(& &1.solar_system_id)
+      |> MapSet.new()
+
+    if MapSet.size(existing_system_ids) > 0 do
+      WandererApp.Api.MapConnection
+      |> Ash.read!()
+      |> Enum.filter(fn conn ->
+        not MapSet.member?(existing_system_ids, conn.solar_system_source) or
+          not MapSet.member?(existing_system_ids, conn.solar_system_target)
+      end)
+      |> Enum.each(fn conn ->
+        WandererApp.MapConnectionRepo.destroy!(conn)
+      end)
+    end
+
+    Logger.info(fn -> "All orphaned connections processed" end)
+    :ok
+  end
+
   defp get_cutoff_time(seconds), do: DateTime.utc_now() |> DateTime.add(-seconds, :second)
 end

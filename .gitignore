@@ -62,3 +62,4 @@ erl_crash.dump
 *.sln
 *.sw?
 /.claude
+.claude

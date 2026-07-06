@@ -5,10 +5,12 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
   alias WandererApp.Map.Server.Impl
   alias WandererApp.Map.Server.SignaturesImpl
+  alias WandererApp.Map.Server.ConnectionsImpl
 
   @ddrt Application.compile_env(:wanderer_app, :ddrt)
   @system_auto_expire_minutes 15
   @system_inactive_timeout :timer.minutes(15)
+  @hidden_system_expire_hours 24
 
   def init_last_activity_cache(map_id, systems_last_activity) do
     systems_last_activity
@@ -207,6 +209,79 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
     if expired_systems |> Enum.empty?() |> Kernel.not() do
       delete_systems(map_id, expired_systems, nil, nil)
+    end
+
+    do_cleanup_hidden_systems(map_id)
+  end
+
+  defp do_cleanup_hidden_systems(map_id) do
+    cutoff_time = DateTime.utc_now() |> DateTime.add(-@hidden_system_expire_hours, :hour)
+
+    # Query DB directly for hidden systems past the cutoff.
+    # We can't use the cache because it doesn't store updated_at.
+    hidden_solar_system_ids =
+      WandererApp.Api.MapSystem
+      |> Ash.Query.filter(
+        and: [
+          [map_id: map_id],
+          [visible: false],
+          [updated_at: [less_than: cutoff_time]]
+        ]
+      )
+      |> Ash.read!()
+      |> Enum.map(& &1.solar_system_id)
+
+    if Enum.empty?(hidden_solar_system_ids) do
+      :ok
+    else
+      # Safety check: don't delete systems that have characters present
+      to_delete =
+        hidden_solar_system_ids
+        |> Enum.reject(fn solar_system_id ->
+          map_id
+          |> WandererApp.Map.get_system_characters(solar_system_id)
+          |> Enum.any?()
+        end)
+
+      if not Enum.empty?(to_delete) do
+        # Delete connections involving these systems from DB
+        case WandererApp.MapConnectionRepo.get_by_map(map_id) do
+          {:ok, conns} ->
+            orphaned_conns =
+              conns
+              |> Enum.filter(fn conn ->
+                conn.solar_system_source in to_delete or conn.solar_system_target in to_delete
+              end)
+
+            Enum.each(orphaned_conns, fn conn ->
+              WandererApp.MapConnectionRepo.destroy(map_id, conn)
+              WandererApp.Map.remove_connection(map_id, conn)
+            end)
+
+            if not Enum.empty?(orphaned_conns) do
+              Impl.broadcast!(map_id, :remove_connections, orphaned_conns)
+            end
+
+          _ ->
+            :ok
+        end
+
+        # Soft-delete systems
+        to_delete
+        |> Enum.each(fn solar_system_id ->
+          map_id |> WandererApp.MapSystemRepo.remove_from_map(solar_system_id)
+
+          WandererApp.Map.remove_system(map_id, solar_system_id)
+
+          @ddrt.delete([solar_system_id], "rtree_#{map_id}")
+        end)
+
+        Impl.broadcast!(map_id, :systems_removed, to_delete)
+
+        Logger.info(
+          "[cleanup_hidden] Map #{map_id}: cleaned up #{length(to_delete)} expired hidden systems"
+        )
+      end
     end
   end
 
@@ -639,6 +714,9 @@ defmodule WandererApp.Map.Server.SystemsImpl do
               position_y: updated_system.position_y
             })
 
+            # Unhide any hidden systems connected to this newly-visible system
+            ConnectionsImpl.maybe_unhide_connected_systems(map_id, updated_system.solar_system_id)
+
             :telemetry.execute(
               [:wanderer_app, :map, :system_addition, :complete],
               %{system_time: System.system_time()},
@@ -691,6 +769,9 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                       position_x: system.position_x,
                       position_y: system.position_y
                     })
+
+                    # Unhide any hidden systems connected to this newly-visible system
+                    ConnectionsImpl.maybe_unhide_connected_systems(map_id, system.solar_system_id)
 
                     :telemetry.execute(
                       [:wanderer_app, :map, :system_addition, :complete],

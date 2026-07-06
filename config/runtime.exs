@@ -313,6 +313,7 @@ config :wanderer_app, WandererApp.Scheduler,
     [
       {"@daily", {WandererApp.Map.Audit, :archive, []}},
       {"@daily", {WandererApp.Map.GarbageCollector, :cleanup_chain_passages, []}},
+      {"@daily", {WandererApp.Map.GarbageCollector, :cleanup_orphaned_connections, []}},
       {"0 */2 * * *", {WandererApp.Map.GarbageCollector, :cleanup_system_signatures, []}}
     ] ++ sheduler_jobs,
   timeout: :infinity

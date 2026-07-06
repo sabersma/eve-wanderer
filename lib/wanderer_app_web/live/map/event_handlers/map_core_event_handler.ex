@@ -744,6 +744,18 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     {:ok, connections} = map_id |> WandererApp.Map.list_connections()
     {:ok, systems} = map_id |> WandererApp.Map.list_systems()
 
+    # Filter out hidden systems (visible: false) — they are auto-hidden orphans
+    visible_systems = systems |> Enum.filter(&Map.get(&1, :visible, true))
+    visible_system_ids = visible_systems |> Enum.map(& &1.solar_system_id) |> MapSet.new()
+
+    # Filter connections: only keep connections where BOTH endpoints are visible
+    visible_connections =
+      connections
+      |> Enum.filter(fn conn ->
+        MapSet.member?(visible_system_ids, conn.solar_system_source) and
+          MapSet.member?(visible_system_ids, conn.solar_system_target)
+      end)
+
     {:ok, user_hubs} =
       if is_subscription_active do
         WandererApp.MapUserSettingsRepo.get_hubs(map_id, current_user_id)
@@ -752,19 +764,19 @@ defmodule WandererAppWeb.MapCoreEventHandler do
       end
 
     system_static_infos =
-      systems
+      visible_systems
       |> Enum.map(&WandererApp.CachedInfo.get_system_static_info!(&1.solar_system_id))
 
     %{
       systems:
-        systems
+        visible_systems
         |> Enum.map(fn system -> MapEventHandler.map_ui_system(system, false) end),
       system_static_infos:
         system_static_infos |> Enum.map(&MapEventHandler.map_ui_system_static_info/1),
       hubs: hubs,
       hubs_limit: hubs_limit,
       user_hubs: user_hubs,
-      connections: connections |> Enum.map(&MapEventHandler.map_ui_connection/1)
+      connections: visible_connections |> Enum.map(&MapEventHandler.map_ui_connection/1)
     }
   end
 

@@ -290,6 +290,7 @@ export enum OutCommand {
   addPing = 'add_ping',
   cancelPing = 'cancel_ping',
   startTracking = 'startTracking',
+  getSystemLastModified = 'get_system_last_modified',
 
   // Only UI commands
   openSettings = 'open_settings',

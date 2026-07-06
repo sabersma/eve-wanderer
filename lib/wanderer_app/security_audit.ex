@@ -312,6 +312,35 @@ defmodule WandererApp.SecurityAudit do
     |> Ash.Query.sort(inserted_at: :desc)
   end
 
+  @doc """
+  For a given map and solar system, returns the most recent character name
+  that modified each tracked field (name, labels, description).
+
+  Returns a map: %{"name" => "Alice", "labels" => "Bob", "description" => nil}
+  Fields with no prior modification are absent from the map.
+  """
+  def get_system_last_modified(map_id, solar_system_id) do
+    UserActivity
+    |> Ash.Query.filter(entity_id: map_id, event_type: :system_updated)
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.limit(200)
+    |> Ash.read!()
+    |> Enum.reduce(%{}, fn activity, acc ->
+      case Jason.decode(activity.event_data || "{}") do
+        {:ok, %{"solar_system_id" => ssid, "key" => key}}
+        when ssid == solar_system_id and key in ["name", "labels", "description"] ->
+          # Only keep the first (most recent) per key, character is preloaded by LoadCharacter preparation
+          Map.put_new(acc, key, get_character_name(activity))
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp get_character_name(%{character: %{name: name}}) when not is_nil(name), do: name
+  defp get_character_name(_), do: nil
+
   defp get_period("1H") do
     now = DateTime.utc_now()
     start_date = DateTime.add(now, -1 * 3600, :second)

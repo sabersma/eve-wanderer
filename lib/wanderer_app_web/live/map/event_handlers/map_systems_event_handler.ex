@@ -268,22 +268,24 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
       end
 
     if can_update_system?(key_atom, user_permissions) do
-      apply(WandererApp.Map.Server, method_atom, [
-        map_id,
-        %{
-          solar_system_id: "#{solar_system_id}" |> String.to_integer()
-        }
-        |> Map.put_new(key_atom, value)
-      ])
+      solar_system_id_int = "#{solar_system_id}" |> String.to_integer()
 
-      WandererApp.User.ActivityTracker.track_map_event(:system_updated, %{
-        character_id: main_character_id,
-        user_id: current_user_id,
-        map_id: map_id,
-        solar_system_id: "#{solar_system_id}" |> String.to_integer(),
-        key: key_atom,
-        value: value
-      })
+      unless value_unchanged?(map_id, solar_system_id_int, key_atom, value) do
+        apply(WandererApp.Map.Server, method_atom, [
+          map_id,
+          %{solar_system_id: solar_system_id_int}
+          |> Map.put_new(key_atom, value)
+        ])
+
+        WandererApp.User.ActivityTracker.track_map_event(:system_updated, %{
+          character_id: main_character_id,
+          user_id: current_user_id,
+          map_id: map_id,
+          solar_system_id: solar_system_id_int,
+          key: key_atom,
+          value: value
+        })
+      end
     end
 
     {:noreply, socket}
@@ -346,6 +348,20 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     {:noreply, socket}
   end
 
+  def handle_ui_event(
+        "get_system_last_modified",
+        %{"solar_system_id" => solar_system_id},
+        %{assigns: %{map_id: map_id}} = socket
+      ) do
+    result =
+      WandererApp.SecurityAudit.get_system_last_modified(
+        map_id,
+        String.to_integer(solar_system_id)
+      )
+
+    {:reply, %{last_modified: result}, socket}
+  end
+
   def handle_ui_event(event, body, socket),
     do: MapCoreEventHandler.handle_ui_event(event, body, socket)
 
@@ -394,4 +410,64 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
          })
 
   defp update_system_position(_map_id, _position), do: :ok
+
+  defp value_unchanged?(map_id, solar_system_id, :name, new_value) do
+    case find_current_system(map_id, solar_system_id) do
+      nil -> false
+      system -> String.trim(system.name || "") == String.trim(new_value)
+    end
+  end
+
+  defp value_unchanged?(map_id, solar_system_id, :description, new_value) do
+    case find_current_system(map_id, solar_system_id) do
+      nil -> false
+      system -> String.trim(system.description || "") == String.trim(new_value)
+    end
+  end
+
+  defp value_unchanged?(map_id, solar_system_id, :labels, new_labels_json) do
+    case find_current_system(map_id, solar_system_id) do
+      nil ->
+        false
+
+      system ->
+        current_custom_label = extract_custom_label(system.labels) |> String.trim()
+        new_custom_label = extract_custom_label(new_labels_json) |> String.trim()
+        current_custom_label == new_custom_label
+    end
+  end
+
+  defp value_unchanged?(_map_id, _solar_system_id, _key, _value), do: false
+
+  defp find_current_system(map_id, solar_system_id) do
+    case WandererApp.Map.find_system_by_location(map_id, %{solar_system_id: solar_system_id}) do
+      nil ->
+        case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, solar_system_id) do
+          {:ok, system} -> system
+          _ -> nil
+        end
+
+      system ->
+        system
+    end
+  end
+
+  defp extract_custom_label(nil), do: ""
+  defp extract_custom_label(""), do: ""
+
+  defp extract_custom_label(labels_json) when is_binary(labels_json) do
+    case Jason.decode(labels_json) do
+      {:ok, %{"customLabel" => custom_label}} when is_binary(custom_label) ->
+        custom_label
+
+      {:ok, _parsed} ->
+        ""
+
+      _error ->
+        case String.split(labels_json, ":", parts: 2) do
+          [_, custom_label] -> String.trim(custom_label)
+          _ -> ""
+        end
+    end
+  end
 end

@@ -32,6 +32,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
   const [label, setLabel] = useState('');
   const [temporaryName, setTemporaryName] = useState('');
   const [description, setDescription] = useState('');
+  const [lastModifiedBy, setLastModifiedBy] = useState<Record<string, string | null>>({});
   const inputRef = useRef<HTMLInputElement>();
 
   const ref = useRef({ name, description, temporaryName, label, outCommand, systemId, system, systemStaticInfo });
@@ -40,16 +41,23 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
   const handleSave = useCallback(() => {
     const { name, description, label, temporaryName, outCommand, systemId, system, systemStaticInfo } = ref.current;
 
-    const outLabel = new LabelsManager(system?.labels ?? '');
-    outLabel.updateCustomLabel(label);
+    const trimmedName = name.trim() || systemStaticInfo?.solar_system_name || '';
+    const currentName = (system?.name || '').trim();
+    const currentLabels = new LabelsManager(system?.labels ?? '');
+    const currentDescription = (system?.description || '').trim();
 
-    outCommand({
-      type: OutCommand.updateSystemLabels,
-      data: {
-        system_id: systemId,
-        value: outLabel.toString(),
-      },
-    });
+    // Only send labels if custom label changed
+    if (label.trim() !== currentLabels.customLabel.trim()) {
+      const outLabel = new LabelsManager(system?.labels ?? '');
+      outLabel.updateCustomLabel(label);
+      outCommand({
+        type: OutCommand.updateSystemLabels,
+        data: {
+          system_id: systemId,
+          value: outLabel.toString(),
+        },
+      });
+    }
 
     outCommand({
       type: OutCommand.updateSystemTemporaryName,
@@ -59,21 +67,27 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
       },
     });
 
-    outCommand({
-      type: OutCommand.updateSystemName,
-      data: {
-        system_id: systemId,
-        value: name.trim() || systemStaticInfo?.solar_system_name,
-      },
-    });
+    // Only send name if changed
+    if (trimmedName !== currentName) {
+      outCommand({
+        type: OutCommand.updateSystemName,
+        data: {
+          system_id: systemId,
+          value: trimmedName,
+        },
+      });
+    }
 
-    outCommand({
-      type: OutCommand.updateSystemDescription,
-      data: {
-        system_id: systemId,
-        value: description,
-      },
-    });
+    // Only send description if changed
+    if (description.trim() !== currentDescription) {
+      outCommand({
+        type: OutCommand.updateSystemDescription,
+        data: {
+          system_id: systemId,
+          value: description,
+        },
+      });
+    }
 
     setVisible(false);
   }, [setVisible]);
@@ -108,6 +122,23 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
     setTemporaryName(system.temporary_name || '');
     setDescription(system.description || '');
   }, []);
+
+  useEffect(() => {
+    if (!visible || !systemId) {
+      return;
+    }
+
+    setLastModifiedBy({});
+
+    outCommand({
+      type: OutCommand.getSystemLastModified,
+      data: { solar_system_id: systemId },
+    }).then((resp: any) => {
+      if (resp?.last_modified) {
+        setLastModifiedBy(resp.last_modified);
+      }
+    });
+  }, [visible, systemId, outCommand]);
 
   return (
     <Dialog
@@ -153,6 +184,11 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                   onChange={e => setName(e.target.value)}
                 />
               </IconField>
+              {lastModifiedBy.name && (
+                <small className="text-gray-400 text-xs mt-0.5 block">
+                  Last modified by: {lastModifiedBy.name}
+                </small>
+              )}
             </div>
 
             <div className="flex flex-col gap-1">
@@ -181,6 +217,11 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                   onInput={handleInput}
                 />
               </IconField>
+              {lastModifiedBy.labels && (
+                <small className="text-gray-400 text-xs mt-0.5 block">
+                  Last modified by: {lastModifiedBy.labels}
+                </small>
+              )}
             </div>
 
             {isTempSystemNameEnabled && (
@@ -217,6 +258,11 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
               <div className="h-[200px]">
                 <MarkdownEditor value={description} onChange={e => setDescription(e)} height="180px" />
               </div>
+              {lastModifiedBy.description && (
+                <small className="text-gray-400 text-xs mt-0.5 block">
+                  Last modified by: {lastModifiedBy.description}
+                </small>
+              )}
             </div>
           </div>
 

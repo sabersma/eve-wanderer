@@ -453,14 +453,15 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
           neighbors = Map.get(adjacency, current_id, [])
 
-          # If from home, detect locked home neighbors on each side to avoid
-          # expanding toward them (direction isolation between home clusters).
-          locked_home_side =
+          # If from home, detect locked home/friendly neighbors on each side to avoid
+          # expanding toward them (direction isolation between clusters).
+          locked_cluster_side =
             if is_home do
               neighbors
               |> Enum.reduce(nil, fn nid, acc ->
                 ns = Map.get(current_systems, nid)
-                if not is_nil(ns) and Map.get(ns, :locked, false) and Map.get(ns, :status) == 1 do
+                if not is_nil(ns) and Map.get(ns, :locked, false) and
+                   Map.get(ns, :status) in [1, 2] do
                   side = if ns.position_x >= home.position_x, do: 1, else: -1
                   if is_nil(acc), do: side, else: acc
                 else
@@ -478,26 +479,26 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                   {q, v, d, dirs, pars, brs, excl}
                 else
                   neighbor_sys = Map.get(current_systems, neighbor)
-                  neighbor_is_locked_home =
+                  neighbor_is_locked_cluster =
                     not is_nil(neighbor_sys) and
                     Map.get(neighbor_sys, :locked, false) and
-                    Map.get(neighbor_sys, :status) == 1
+                    Map.get(neighbor_sys, :status) in [1, 2]
 
-                  # Stop BFS at locked home systems — do not traverse beyond them.
-                  # This isolates each home cluster from the others.
-                  if neighbor_is_locked_home do
+                  # Stop BFS at locked home/friendly systems — do not traverse beyond them.
+                  # This isolates each cluster from the others.
+                  if neighbor_is_locked_cluster do
                     {q, MapSet.put(v, neighbor), d, dirs, pars, brs, excl}
                   else
                     new_visited = MapSet.put(v, neighbor)
                     new_depth = current_depth + 1
 
-                    # Direction: from home → current position (but avoid locked home side);
+                    # Direction: from home → current position (but avoid locked cluster side);
                     # otherwise → inherit from parent
                     new_dir =
                       if is_home do
                         default_dir = if neighbor_sys.position_x >= home.position_x, do: 1, else: -1
-                        # If there's a locked home on this side, flip direction to go away from it
-                        if not is_nil(locked_home_side) and default_dir == locked_home_side do
+                        # If there's a locked home/friendly on this side, flip direction to go away from it
+                        if not is_nil(locked_cluster_side) and default_dir == locked_cluster_side do
                           -default_dir
                         else
                           default_dir
@@ -1569,7 +1570,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     all_systems = WandererApp.Map.list_systems!()
     all_system_ids = all_systems |> Enum.map(& &1.solar_system_id) |> MapSet.new()
 
-    # Build system lookup for checking locked home status
+    # Build system lookup for checking locked home/friendly status
     systems_lookup =
       all_systems
       |> Enum.reduce(%{}, fn sys, acc -> Map.put(acc, sys.solar_system_id, sys) end)
@@ -1587,7 +1588,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
         end)
       end)
 
-    # BFS: stop traversal at locked home systems (status == 1 and locked == true).
+    # BFS: stop traversal at locked home/friendly systems (status in [1, 2] and locked == true).
     bfs = fn bfs_fn, queue, visited, depths ->
       case :queue.out(queue) do
         {{:value, current_id}, rest} ->
@@ -1600,11 +1601,11 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                 {q, v, d}
               else
                 ns = Map.get(systems_lookup, neighbor)
-                is_locked_home =
-                  not is_nil(ns) and Map.get(ns, :locked, false) and Map.get(ns, :status) == 1
+                is_locked_cluster =
+                  not is_nil(ns) and Map.get(ns, :locked, false) and Map.get(ns, :status) in [1, 2]
 
-                if is_locked_home do
-                  # Stop at locked home: mark visited but don't enqueue (don't traverse beyond)
+                if is_locked_cluster do
+                  # Stop at locked home/friendly: mark visited but don't enqueue
                   {q, MapSet.put(v, neighbor), d}
                 else
                   {:queue.in(neighbor, q), MapSet.put(v, neighbor),

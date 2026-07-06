@@ -324,42 +324,93 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     # Start y from home_y - half total height
     start_y = home.position_y - div(total_height, 2)
 
-    # Assign positions for each branch
+    # Assign positions for each branch.
+    # Process depth-by-depth: align each system with its parent's Y for horizontal links,
+    # resolving conflicts with vertical spacing when multiple systems share the same column.
     {_current_y, positions} =
       Enum.reduce(Enum.zip(sorted_groups, branch_heights), {start_y, %{}}, fn
         {{{_dir, _branch}, systems}, branch_h}, {base_y, acc} ->
-          # Within this branch, group by depth
+          # Within this branch, group by depth (sorted)
           by_depth =
             systems
             |> Enum.group_by(fn {sid, _} -> Map.get(depths, sid) end)
             |> Enum.sort_by(fn {d, _} -> d end)
 
-          # Find max count at any depth for vertical centering within branch
-          max_count =
-            by_depth
-            |> Enum.map(fn {_d, ss} -> length(ss) end)
-            |> Enum.max(fn -> 0 end)
-
           branch_center_y = base_y + div(branch_h, 2)
 
-          {base_y + branch_h,
-           Enum.reduce(by_depth, acc, fn {depth, depth_systems}, inner_acc ->
-             # Sort systems at this depth by parent_id for consistency
-             sorted = Enum.sort_by(depth_systems, fn {sid, _} -> Map.get(parents, sid, sid) end)
-             count = length(sorted)
+          # Process each depth, passing accumulated positions so children can
+          # reference their parent's assigned Y.
+          {_final_y, depth_acc} =
+            Enum.reduce(by_depth, {branch_center_y, acc}, fn {depth, depth_systems},
+              {_prev_center, inner_acc} ->
+              # Sort by parent's Y (if known) for horizontal alignment, fallback to parent_id
+              sorted =
+                depth_systems
+                |> Enum.sort_by(fn {sid, _} ->
+                  parent_id = Map.get(parents, sid, sid)
+                  parent_pos = Map.get(inner_acc, parent_id)
+                  if not is_nil(parent_pos) do
+                    {elem(parent_pos, 1), parent_id}
+                  else
+                    {branch_center_y, parent_id}
+                  end
+                end)
 
-             # Center this depth's systems vertically within the branch
-             depth_start_y = branch_center_y - div(count * spacing_y, 2)
+              # Assign Y positions: start from each system's ideal Y (parent's Y)
+              # and resolve conflicts with minimum spacing
+              assigned =
+                Enum.reduce(sorted, {[], %{}}, fn {sid, _depth}, {prev_assigned, pos_map} ->
+                  parent_id = Map.get(parents, sid, sid)
+                  ideal_y =
+                    case Map.get(inner_acc, parent_id) do
+                      nil -> branch_center_y
+                      {_px, py} -> py
+                    end
 
-             Enum.reduce(Enum.with_index(sorted), inner_acc, fn {{sid, _depth}, idx}, acc2 ->
-               x = home.position_x + direction * depth * spacing_x
-               y = depth_start_y + idx * spacing_y
-               Map.put(acc2, sid, {x, y})
-             end)
-           end)}
+                  # Find the closest available Y near ideal_y, avoiding conflicts
+                  actual_y = find_closest_y(ideal_y, prev_assigned, spacing_y)
+                  x = home.position_x + direction * depth * spacing_x
+
+                  {[{actual_y, sid} | prev_assigned],
+                   Map.put(pos_map, sid, {x, actual_y})}
+                end)
+
+              {branch_center_y, Map.merge(inner_acc, elem(assigned, 1))}
+            end)
+
+          {base_y + branch_h, depth_acc}
       end)
 
     positions
+  end
+
+  # Find the closest available Y position near ideal_y, avoiding conflicts with
+  # previously assigned positions (list of {y, system_id} tuples at the same depth).
+  # Uses minimum spacing `min_gap` between systems.
+  defp find_closest_y(ideal_y, assigned, min_gap) do
+    assigned_ys = assigned |> Enum.map(fn {y, _} -> y end) |> MapSet.new()
+
+    if not MapSet.member?(assigned_ys, ideal_y) do
+      ideal_y
+    else
+      # Search upward and downward for first available spot
+      find_closest_y_search(ideal_y, assigned_ys, min_gap, 1)
+    end
+  end
+
+  defp find_closest_y_search(ideal_y, assigned_ys, min_gap, offset) do
+    candidates = [
+      ideal_y - offset * min_gap,
+      ideal_y + offset * min_gap
+    ]
+
+    found = Enum.find(candidates, fn y -> not MapSet.member?(assigned_ys, y) end)
+
+    if not is_nil(found) do
+      found
+    else
+      find_closest_y_search(ideal_y, assigned_ys, min_gap, offset + 1)
+    end
   end
 
   # BFS from home, tracking depth, direction, parent, branch_root, and locked/excluded systems.

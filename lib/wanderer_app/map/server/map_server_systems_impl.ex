@@ -402,46 +402,82 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
           neighbors = Map.get(adjacency, current_id, [])
 
+          # If from home, detect locked home neighbors on each side to avoid
+          # expanding toward them (direction isolation between home clusters).
+          locked_home_side =
+            if is_home do
+              neighbors
+              |> Enum.reduce(nil, fn nid, acc ->
+                ns = Map.get(current_systems, nid)
+                if not is_nil(ns) and Map.get(ns, :locked, false) and Map.get(ns, :status) == 1 do
+                  side = if ns.position_x >= home.position_x, do: 1, else: -1
+                  if is_nil(acc), do: side, else: acc
+                else
+                  acc
+                end
+              end)
+            else
+              nil
+            end
+
           {new_queue, new_visited, new_depths, new_directions, new_parents, new_branch_roots, new_excluded} =
             Enum.reduce(neighbors, {rest, visited, depths, directions, parents, branch_roots, excluded},
               fn neighbor, {q, v, d, dirs, pars, brs, excl} ->
                 if MapSet.member?(v, neighbor) or not MapSet.member?(all_system_ids, neighbor) do
                   {q, v, d, dirs, pars, brs, excl}
                 else
-                  new_visited = MapSet.put(v, neighbor)
-                  new_depth = current_depth + 1
+                  neighbor_sys = Map.get(current_systems, neighbor)
+                  neighbor_is_locked_home =
+                    not is_nil(neighbor_sys) and
+                    Map.get(neighbor_sys, :locked, false) and
+                    Map.get(neighbor_sys, :status) == 1
 
-                  # Direction: from home → current position; otherwise → inherit
-                  new_dir =
-                    if is_home do
-                      neighbor_sys = Map.get(current_systems, neighbor)
-                      if not is_nil(neighbor_sys) and neighbor_sys.position_x >= home.position_x, do: 1, else: -1
-                    else
-                      direction
-                    end
-
-                  # Branch root: for direct children of home → themselves; otherwise → inherit
-                  new_branch =
-                    if is_home do
-                      neighbor
-                    else
-                      branch_root
-                    end
-
-                  if skip_subtree do
-                    {:queue.in({neighbor, new_dir, new_branch}, q), new_visited,
-                     Map.put(d, neighbor, new_depth),
-                     Map.put(dirs, neighbor, new_dir),
-                     Map.put(pars, neighbor, current_id),
-                     Map.put(brs, neighbor, new_branch),
-                     MapSet.put(excl, neighbor)}
+                  # Stop BFS at locked home systems — do not traverse beyond them.
+                  # This isolates each home cluster from the others.
+                  if neighbor_is_locked_home do
+                    {q, MapSet.put(v, neighbor), d, dirs, pars, brs, excl}
                   else
-                    {:queue.in({neighbor, new_dir, new_branch}, q), new_visited,
-                     Map.put(d, neighbor, new_depth),
-                     Map.put(dirs, neighbor, new_dir),
-                     Map.put(pars, neighbor, current_id),
-                     Map.put(brs, neighbor, new_branch),
-                     excl}
+                    new_visited = MapSet.put(v, neighbor)
+                    new_depth = current_depth + 1
+
+                    # Direction: from home → current position (but avoid locked home side);
+                    # otherwise → inherit from parent
+                    new_dir =
+                      if is_home do
+                        default_dir = if neighbor_sys.position_x >= home.position_x, do: 1, else: -1
+                        # If there's a locked home on this side, flip direction to go away from it
+                        if not is_nil(locked_home_side) and default_dir == locked_home_side do
+                          -default_dir
+                        else
+                          default_dir
+                        end
+                      else
+                        direction
+                      end
+
+                    # Branch root: for direct children of home → themselves; otherwise → inherit
+                    new_branch =
+                      if is_home do
+                        neighbor
+                      else
+                        branch_root
+                      end
+
+                    if skip_subtree do
+                      {:queue.in({neighbor, new_dir, new_branch}, q), new_visited,
+                       Map.put(d, neighbor, new_depth),
+                       Map.put(dirs, neighbor, new_dir),
+                       Map.put(pars, neighbor, current_id),
+                       Map.put(brs, neighbor, new_branch),
+                       MapSet.put(excl, neighbor)}
+                    else
+                      {:queue.in({neighbor, new_dir, new_branch}, q), new_visited,
+                       Map.put(d, neighbor, new_depth),
+                       Map.put(dirs, neighbor, new_dir),
+                       Map.put(pars, neighbor, current_id),
+                       Map.put(brs, neighbor, new_branch),
+                       excl}
+                    end
                   end
                 end
               end)
@@ -1438,11 +1474,13 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   # BFS from home to compute depth (number of jumps) for each connected system
   defp bfs_depths_from_home(map_id, home_solar_system_id) do
     connections = WandererApp.Map.list_connections!(map_id)
-    all_system_ids =
-      map_id
-      |> WandererApp.Map.list_systems!()
-      |> Enum.map(& &1.solar_system_id)
-      |> MapSet.new()
+    all_systems = WandererApp.Map.list_systems!()
+    all_system_ids = all_systems |> Enum.map(& &1.solar_system_id) |> MapSet.new()
+
+    # Build system lookup for checking locked home status
+    systems_lookup =
+      all_systems
+      |> Enum.reduce(%{}, fn sys, acc -> Map.put(acc, sys.solar_system_id, sys) end)
 
     # Build bidirectional adjacency
     adjacency =
@@ -1457,7 +1495,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
         end)
       end)
 
-    # BFS
+    # BFS: stop traversal at locked home systems (status == 1 and locked == true).
     bfs = fn bfs_fn, queue, visited, depths ->
       case :queue.out(queue) do
         {{:value, current_id}, rest} ->
@@ -1469,8 +1507,17 @@ defmodule WandererApp.Map.Server.SystemsImpl do
               if MapSet.member?(v, neighbor) or not MapSet.member?(all_system_ids, neighbor) do
                 {q, v, d}
               else
-                {:queue.in(neighbor, q), MapSet.put(v, neighbor),
-                 Map.put(d, neighbor, current_depth + 1)}
+                ns = Map.get(systems_lookup, neighbor)
+                is_locked_home =
+                  not is_nil(ns) and Map.get(ns, :locked, false) and Map.get(ns, :status) == 1
+
+                if is_locked_home do
+                  # Stop at locked home: mark visited but don't enqueue (don't traverse beyond)
+                  {q, MapSet.put(v, neighbor), d}
+                else
+                  {:queue.in(neighbor, q), MapSet.put(v, neighbor),
+                   Map.put(d, neighbor, current_depth + 1)}
+                end
               end
             end)
 

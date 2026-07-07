@@ -2,6 +2,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   @moduledoc false
 
   require Logger
+  require Ash.Query
 
   alias WandererApp.Map.Server.Impl
   alias WandererApp.Map.Server.SignaturesImpl
@@ -453,15 +454,14 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
           neighbors = Map.get(adjacency, current_id, [])
 
-          # If from home, detect locked home/friendly neighbors on each side to avoid
+          # If from home, detect locked neighbors on each side to avoid
           # expanding toward them (direction isolation between clusters).
-          locked_cluster_side =
+          locked_side =
             if is_home do
               neighbors
               |> Enum.reduce(nil, fn nid, acc ->
                 ns = Map.get(current_systems, nid)
-                if not is_nil(ns) and Map.get(ns, :locked, false) and
-                   Map.get(ns, :status) in [1, 2] do
+                if not is_nil(ns) and Map.get(ns, :locked, false) do
                   side = if ns.position_x >= home.position_x, do: 1, else: -1
                   if is_nil(acc), do: side, else: acc
                 else
@@ -479,26 +479,24 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                   {q, v, d, dirs, pars, brs, excl}
                 else
                   neighbor_sys = Map.get(current_systems, neighbor)
-                  neighbor_is_locked_cluster =
-                    not is_nil(neighbor_sys) and
-                    Map.get(neighbor_sys, :locked, false) and
-                    Map.get(neighbor_sys, :status) in [1, 2]
+                  neighbor_is_locked =
+                    not is_nil(neighbor_sys) and Map.get(neighbor_sys, :locked, false)
 
-                  # Stop BFS at locked home/friendly systems — do not traverse beyond them.
-                  # This isolates each cluster from the others.
-                  if neighbor_is_locked_cluster do
+                  # Stop BFS at locked systems — do not traverse beyond them.
+                  # This isolates each locked cluster from the others.
+                  if neighbor_is_locked do
                     {q, MapSet.put(v, neighbor), d, dirs, pars, brs, excl}
                   else
                     new_visited = MapSet.put(v, neighbor)
                     new_depth = current_depth + 1
 
-                    # Direction: from home → current position (but avoid locked cluster side);
+                    # Direction: from home → current position (but avoid locked side);
                     # otherwise → inherit from parent
                     new_dir =
                       if is_home do
                         default_dir = if neighbor_sys.position_x >= home.position_x, do: 1, else: -1
-                        # If there's a locked home/friendly on this side, flip direction to go away from it
-                        if not is_nil(locked_cluster_side) and default_dir == locked_cluster_side do
+                        # If there's a locked system on this side, flip direction to go away from it
+                        if not is_nil(locked_side) and default_dir == locked_side do
                           -default_dir
                         else
                           default_dir
@@ -1493,7 +1491,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   end
 
   defp calc_position_for_system(anchor_system, map_id, _old_location, rtree_name, opts) do
-    case find_home_system(map_id) do
+    case find_home_system(map_id, anchor_system) do
       nil ->
         WandererApp.Map.PositionCalculator.get_new_system_position(anchor_system, rtree_name, opts)
 
@@ -1558,91 +1556,23 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   end
 
   # Find the home system on the map (status == 1)
-  defp find_home_system(map_id) do
-    map_id
-    |> WandererApp.Map.list_systems!()
-    |> Enum.find(fn sys -> Map.get(sys, :status) == 1 and Map.get(sys, :visible, true) end)
-  end
-
-  # BFS from home to compute depth (number of jumps) for each connected system
-  defp bfs_depths_from_home(map_id, home_solar_system_id) do
-    connections = WandererApp.Map.list_connections!(map_id)
-    all_systems = WandererApp.Map.list_systems!()
-    all_system_ids = all_systems |> Enum.map(& &1.solar_system_id) |> MapSet.new()
-
-    # Build system lookup for checking locked home/friendly status
-    systems_lookup =
-      all_systems
-      |> Enum.reduce(%{}, fn sys, acc -> Map.put(acc, sys.solar_system_id, sys) end)
-
-    # Build bidirectional adjacency
-    adjacency =
-      connections
-      |> Enum.reduce(%{}, fn conn, acc ->
-        acc
-        |> Map.update(conn.solar_system_source, [conn.solar_system_target], fn ex ->
-          [conn.solar_system_target | ex]
-        end)
-        |> Map.update(conn.solar_system_target, [conn.solar_system_source], fn ex ->
-          [conn.solar_system_source | ex]
-        end)
-      end)
-
-    # BFS: stop traversal at locked home/friendly systems (status in [1, 2] and locked == true).
-    bfs = fn bfs_fn, queue, visited, depths ->
-      case :queue.out(queue) do
-        {{:value, current_id}, rest} ->
-          current_depth = Map.get(depths, current_id, 0)
-          neighbors = Map.get(adjacency, current_id, [])
-
-          {new_queue, new_visited, new_depths} =
-            Enum.reduce(neighbors, {rest, visited, depths}, fn neighbor, {q, v, d} ->
-              if MapSet.member?(v, neighbor) or not MapSet.member?(all_system_ids, neighbor) do
-                {q, v, d}
-              else
-                ns = Map.get(systems_lookup, neighbor)
-                is_locked_cluster =
-                  not is_nil(ns) and Map.get(ns, :locked, false) and Map.get(ns, :status) in [1, 2]
-
-                if is_locked_cluster do
-                  # Stop at locked home/friendly: mark visited but don't enqueue
-                  {q, MapSet.put(v, neighbor), d}
-                else
-                  {:queue.in(neighbor, q), MapSet.put(v, neighbor),
-                   Map.put(d, neighbor, current_depth + 1)}
-                end
-              end
-            end)
-
-          bfs_fn.(bfs_fn, new_queue, new_visited, new_depths)
-
-        {:empty, _} ->
-          depths
-      end
-    end
-
-    queue = :queue.from_list([home_solar_system_id])
-    visited = MapSet.new([home_solar_system_id])
-    depths = %{home_solar_system_id => 0}
-
-    bfs.(bfs, queue, visited, depths)
-  end
-
-  # Choose direction: count systems on each side of home and pick the less crowded side
-  defp choose_direction(map_id, home) do
-    {left_count, right_count} =
+  # Find the nearest home system to the anchor system's position.
+  # When no anchor is given, returns any home (first found).
+  defp find_home_system(map_id, anchor_system \\ nil) do
+    homes =
       map_id
       |> WandererApp.Map.list_systems!()
-      |> Enum.filter(&Map.get(&1, :visible, true))
-      |> Enum.reduce({0, 0}, fn sys, {left, right} ->
-        cond do
-          sys.position_x < home.position_x -> {left + 1, right}
-          sys.position_x > home.position_x -> {left, right + 1}
-          true -> {left, right}
-        end
-      end)
+      |> Enum.filter(fn sys -> Map.get(sys, :status) == 1 and Map.get(sys, :visible, true) end)
 
-    if right_count <= left_count, do: 1, else: -1
+    if is_nil(anchor_system) or length(homes) <= 1 do
+      List.first(homes)
+    else
+      Enum.min_by(homes, fn h ->
+        dx = h.position_x - anchor_system.position_x
+        dy = h.position_y - anchor_system.position_y
+        dx * dx + dy * dy
+      end)
+    end
   end
 
   defp update_system(

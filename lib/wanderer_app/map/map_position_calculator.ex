@@ -129,7 +129,7 @@ defmodule WandererApp.Map.PositionCalculator do
     find_vertical_position(x, start_y, 0, rtree_name)
   end
 
-  defp find_vertical_position(x, start_y, offset, rtree_name) when offset > 500, do: {x, start_y}
+  defp find_vertical_position(x, start_y, offset, _rtree_name) when offset > 500, do: {x, start_y}
 
   defp find_vertical_position(x, start_y, offset, rtree_name) do
     candidates =

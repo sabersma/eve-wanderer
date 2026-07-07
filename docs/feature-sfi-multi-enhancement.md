@@ -6,6 +6,12 @@
 >
 > 本文档记录本次会话中实现的所有功能变更，便于后续合并上游仓库时解决冲突。
 
+**补充修复** (2026-07-08):
+- **最近 home 选择**：`find_home_system` 改为 `find_nearest_home`，当存在多个 home 时按欧几里得距离选择最近的，避免新系统被放置到错误集群区域。
+- **任意 lock 均作为 BFS 边界**：BFS 边界从 `locked && status in [home, friendly]` 扩展为任意 `locked` 系统，方向隔离逻辑也同步调整。
+- **增量布局复用重排逻辑**：`calc_position_for_system` 改用 `bfs_rearrange_metadata` + `find_closest_y`，新增系统也能做到分支隔离和父子水平对齐。
+- **清理无用代码**：删除已被替代的 `bfs_depths_from_home` 和 `choose_direction`。
+
 ---
 
 ## 功能清单
@@ -18,7 +24,7 @@
 | 4 | System Info 最后修改者 | 星系设置窗口中显示每个字段的最后修改者 |
 | 5 | 无修改不产生记录 | Save 时如果值未变化（trim 后）不产生审计记录 |
 | 6 | 基于 home 的层级布局 | BFS 层级扩散布局，支持一键重排、分支区域隔离、水平连线对齐 |
-| 7 | 多 home/friendly 集群隔离 | locked home/friendly 作为 BFS 边界，方向自动远离，避免跨集群冲突 |
+| 7 | 多集群隔离（任意 lock） | 任意 locked 系统作为 BFS 边界，方向自动远离，避免跨集群冲突 |
 
 ---
 
@@ -94,11 +100,12 @@
 
 **右键菜单**: home 星系右键新增 "Re-arrange layout"，一键重排整个集群。
 
-### 7. 多 home/friendly 集群隔离
+### 7. 多集群隔离（任意 lock）
 
-- BFS 遇到 `locked == true && status in [home, friendly]` 的系统完全停止遍历（不入队）
-- home A 扫描直接邻居，如果某侧有 locked home/friendly，则该侧的非 home 邻居方向翻转
+- BFS 遇到任意 `locked == true` 的系统完全停止遍历（不入队）
+- home A 扫描直接邻居，如果某侧有 locked 系统，则该侧的非 home 邻居方向翻转
 - 各集群独立排列，各自向远离其他集群的方向扩展
+- `find_home_system` 选择距离锚点系统最近的 home（多 home 场景下避免跨集群误放置）
 
 ---
 
@@ -108,7 +115,7 @@
 2. **过期清理**: 隐藏 1 天后自动从 DB 删除，防止数据无限堆积
 3. **确定性布局**: 重排时预计算所有位置再批量更新，不依赖 R-tree 顺序
 4. **分支区域隔离**: 每个 home 的直接子节点独占纵向区域，子树内所有系统集中排列
-5. **多 home/friendly 互不干扰**: locked home/friendly 作为 BFS 硬边界，方向自动远离
+5. **多集群互不干扰**: 任意 locked 系统作为 BFS 硬边界，方向自动远离
 
 ---
 
@@ -118,7 +125,7 @@
 2. 刷新页面后隐藏系统不出现
 3. 隐藏超过 1 天 → 系统和连接从 DB 清理
 4. 右键 home → Re-arrange → 多次点击结果一致，连线尽量水平
-5. 两个 locked home/friendly 共存 → 各自独立排列，互不干扰
+5. 两个 locked 集群共存 → 各自独立排列，互不干扰
 6. 角色移动到新星系 → 新系统按层级布局放置
 7. Save 无修改值 → 不产生审计记录
 8. System Settings 显示最后修改者

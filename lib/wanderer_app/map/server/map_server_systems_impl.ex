@@ -1479,14 +1479,15 @@ defmodule WandererApp.Map.Server.SystemsImpl do
        |> WandererApp.Map.find_system_by_location(old_location)
        |> calc_position_for_system(map_id, old_location, rtree_name, opts)}
 
-  # Calculate position for a new system. If there is a home system, use level-based
-  # layout; otherwise fall back to the spiral algorithm.
+  # Calculate position for a new system. If the system is connected to a home or lock
+  # system, use level-based / branch-aware layout anchored at the home. Otherwise, use
+  # compact spiral clustering around the anchor (or a lower empty area when there is no
+  # anchor at all). This prevents unconnected systems from drifting toward home.
   defp calc_position_for_system(nil, map_id, _old_location, rtree_name, opts) do
-    # No anchor system — use home-based layout if available, else default spiral
+    # No anchor system — place in lower empty area when homes exist, else default spiral
     case find_home_system(map_id) do
       nil -> WandererApp.Map.PositionCalculator.get_new_system_position(nil, rtree_name, opts)
-      home -> WandererApp.Map.PositionCalculator.get_level_position(home.position_x, home.position_y, 0, 1, rtree_name)
-               |> then(fn {x, y} -> %{x: x, y: y} end)
+      _home -> find_lower_empty_position(map_id, rtree_name)
     end
   end
 
@@ -1496,7 +1497,9 @@ defmodule WandererApp.Map.Server.SystemsImpl do
         WandererApp.Map.PositionCalculator.get_new_system_position(anchor_system, rtree_name, opts)
 
       home ->
-        # Home exists: use full BFS metadata for branch-aware, parent-aligned positioning.
+        # Run BFS from home to determine if the anchor is actually reachable.
+        # The BFS respects locked-system boundaries (stops at locked), so anchors
+        # in isolated clusters won't be in the tree — they spiral independently.
         current_systems =
           map_id
           |> WandererApp.Map.list_systems!()
@@ -1505,52 +1508,59 @@ defmodule WandererApp.Map.Server.SystemsImpl do
         {depths, _directions, parents, branch_roots, _excluded} =
           bfs_rearrange_metadata(map_id, home, current_systems)
 
-        parent_depth = Map.get(depths, anchor_system.solar_system_id, 0)
-        new_depth = parent_depth + 1
+        if Map.has_key?(depths, anchor_system.solar_system_id) do
+          # Anchor is in the BFS tree — use branch-aware, parent-aligned positioning.
+          parent_depth = Map.get(depths, anchor_system.solar_system_id)
+          new_depth = parent_depth + 1
 
-        direction = if anchor_system.position_x >= home.position_x, do: 1, else: -1
+          direction = if anchor_system.position_x >= home.position_x, do: 1, else: -1
 
-        x = home.position_x + direction * new_depth * (@node_w + @margin_x)
+          x = home.position_x + direction * new_depth * (@node_w + @margin_x)
 
-        # Compute Y using branch-aware parent alignment (same logic as rearrange).
-        # Collect other visible systems at the same depth in the same branch,
-        # sorted by their parent's Y.
-        new_branch_root = Map.get(branch_roots, anchor_system.solar_system_id, anchor_system.solar_system_id)
-        spacing_y = @node_h + @margin_y
+          # Compute Y using branch-aware parent alignment (same logic as rearrange).
+          # Collect other visible systems at the same depth in the same branch,
+          # sorted by their parent's Y.
+          new_branch_root = Map.get(branch_roots, anchor_system.solar_system_id, anchor_system.solar_system_id)
+          spacing_y = @node_h + @margin_y
 
-        sibling_ys =
-          depths
-          |> Enum.filter(fn {sid, d} ->
-            d == new_depth and
-              Map.get(branch_roots, sid) == new_branch_root and
-              Map.get(current_systems, sid) |> then(&(not is_nil(&1) and Map.get(&1, :visible, true)))
-          end)
-          |> Enum.sort_by(fn {sid, _} ->
-            pid = Map.get(parents, sid, sid)
-            parent_pos = Map.get(current_systems, pid)
-            if not is_nil(parent_pos), do: {parent_pos.position_y, pid}, else: {home.position_y, pid}
-          end)
-          |> Enum.map(fn {sid, _} -> Map.get(current_systems, sid).position_y end)
+          sibling_ys =
+            depths
+            |> Enum.filter(fn {sid, d} ->
+              d == new_depth and
+                Map.get(branch_roots, sid) == new_branch_root and
+                Map.get(current_systems, sid) |> then(&(not is_nil(&1) and Map.get(&1, :visible, true)))
+            end)
+            |> Enum.sort_by(fn {sid, _} ->
+              pid = Map.get(parents, sid, sid)
+              parent_pos = Map.get(current_systems, pid)
+              if not is_nil(parent_pos), do: {parent_pos.position_y, pid}, else: {home.position_y, pid}
+            end)
+            |> Enum.map(fn {sid, _} -> Map.get(current_systems, sid).position_y end)
 
-        # Ideal Y = parent's Y for horizontal alignment
-        ideal_y = anchor_system.position_y
+          # Ideal Y = parent's Y for horizontal alignment
+          ideal_y = anchor_system.position_y
 
-        y = find_closest_y(ideal_y, Enum.map(sibling_ys, &{&1, nil}), spacing_y)
+          y = find_closest_y(ideal_y, Enum.map(sibling_ys, &{&1, nil}), spacing_y)
 
-        # Verify the position is available in R-tree; fall back to spiral if blocked
-        candidate_pos = %{position_x: x, position_y: y}
-        bounding_rect = WandererApp.Map.PositionCalculator.get_system_bounding_rect(candidate_pos)
+          # Verify the position is available in R-tree; fall back to level-position if blocked
+          candidate_pos = %{position_x: x, position_y: y}
+          bounding_rect = WandererApp.Map.PositionCalculator.get_system_bounding_rect(candidate_pos)
 
-        case @ddrt.query(bounding_rect, rtree_name) do
-          {:ok, []} ->
-            %{x: x, y: y}
+          case @ddrt.query(bounding_rect, rtree_name) do
+            {:ok, []} ->
+              %{x: x, y: y}
 
-          _ ->
-            # Position blocked, fall back to level-position which scans for alternatives
-            {fx, fy} = WandererApp.Map.PositionCalculator.get_level_position(
-              home.position_x, home.position_y, new_depth, direction, rtree_name
-            )
-            %{x: fx, y: fy}
+            _ ->
+              # Position blocked, fall back to level-position which scans for alternatives
+              {fx, fy} = WandererApp.Map.PositionCalculator.get_level_position(
+                home.position_x, home.position_y, new_depth, direction, rtree_name
+              )
+              %{x: fx, y: fy}
+          end
+        else
+          # Anchor is NOT reachable from home (isolated cluster or behind locked
+          # boundary) — spiral-compact around the anchor instead of drifting home.
+          WandererApp.Map.PositionCalculator.get_new_system_position(anchor_system, rtree_name, opts)
         end
     end
   end
@@ -1572,6 +1582,44 @@ defmodule WandererApp.Map.Server.SystemsImpl do
         dy = h.position_y - anchor_system.position_y
         dx * dx + dy * dy
       end)
+    end
+  end
+
+  # Find an empty position in the lower area of the map, below all existing systems.
+  # Used for brand-new isolated nodes that have no anchor to cluster around.
+  defp find_lower_empty_position(map_id, rtree_name) do
+    systems = WandererApp.Map.list_systems!(map_id)
+
+    if Enum.empty?(systems) do
+      %{x: 0, y: 0}
+    else
+      max_y =
+        systems
+        |> Enum.map(fn sys -> Map.get(sys, :position_y, 0) end)
+        |> Enum.max(fn -> 0 end)
+
+      # Start below the lowest system with generous margin
+      start_y = max_y + @node_h + @margin_y * 3
+      start_x = 0
+
+      candidate_rect =
+        WandererApp.Map.PositionCalculator.get_system_bounding_rect(%{
+          position_x: start_x,
+          position_y: start_y
+        })
+
+      case @ddrt.query(candidate_rect, rtree_name) do
+        {:ok, []} ->
+          %{x: start_x, y: start_y}
+
+        _ ->
+          # Position occupied, use spiral search from the lower start point
+          WandererApp.Map.PositionCalculator.get_new_system_position(
+            %{position_x: start_x, position_y: start_y},
+            rtree_name,
+            %{}
+          )
+      end
     end
   end
 

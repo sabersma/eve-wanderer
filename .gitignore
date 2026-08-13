@@ -17,9 +17,13 @@ repomix*
 /priv/static/images/
 /priv/static/*.js
 /priv/static/*.css
+/priv/static/*.gz
+/priv/static/cache_manifest.json
 /priv/static/*-*.png
 /priv/static/*-*.webp
 /priv/static/*-*.webmanifest
+/priv/static/*-*.ico
+/priv/static/*-*.svg
 
 # Dialyzer PLT files
 /priv/plts/

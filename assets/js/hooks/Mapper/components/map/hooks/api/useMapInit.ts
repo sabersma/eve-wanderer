@@ -2,20 +2,33 @@ import { MapData, useMapState } from '@/hooks/Mapper/components/map/MapProvider.
 import { useEventBuffer } from '@/hooks/Mapper/hooks';
 import { SolarSystemConnection, SolarSystemRawType } from '@/hooks/Mapper/types';
 import { CommandInit } from '@/hooks/Mapper/types/mapHandlers.ts';
+import { ViewMode } from '@/hooks/Mapper/mapRootProvider';
 import { useCallback, useRef } from 'react';
 import { useReactFlow } from 'reactflow';
 import { convertConnection2Edge, convertSystem2Node } from '../../helpers';
+import { LayoutPositions } from '../../helpers/layout';
 
-export const useMapInit = () => {
+export const useMapInit = (layoutPositions: LayoutPositions | null, viewMode: ViewMode) => {
   const rf = useReactFlow();
   const { data, update } = useMapState();
 
-  const ref = useRef({ rf, data, update });
-  ref.current = { update, data, rf };
+  const ref = useRef({ rf, data, update, layoutPositions, viewMode });
+  ref.current = { update, data, rf, layoutPositions, viewMode };
 
   const updateSystems = useCallback((systems: SolarSystemRawType[]) => {
-    const { rf } = ref.current;
+    const { rf, layoutPositions, viewMode } = ref.current;
     rf.setNodes(systems.map(convertSystem2Node));
+
+    // In a home view, restore the per-view layout on top of the data
+    // coordinates (init re-push resets nodes to shared coordinates).
+    if (viewMode === 'home' && layoutPositions) {
+      rf.setNodes(nodes =>
+        nodes.map(n => {
+          const pos = layoutPositions[n.id];
+          return pos ? { ...n, position: pos } : n;
+        }),
+      );
+    }
   }, []);
 
   const { handleEvent: handleUpdateSystems } = useEventBuffer<any>(updateSystems);

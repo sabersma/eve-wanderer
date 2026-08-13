@@ -30,6 +30,8 @@ import {
   useContextMenuRootHandlers,
 } from './components';
 import { getBehaviorForTheme } from './helpers/getThemeBehavior';
+import { LayoutPositions } from './helpers/layout';
+import { ViewMode } from '@/hooks/Mapper/mapRootProvider';
 import { useEdgesState, useMapHandlers, useNodesState, useUpdateNodes } from './hooks';
 import { useBackgroundVars } from './hooks/useBackgroundVars';
 import { MapViewport, OnMapAddSystemCallback, OnMapSelectionChange } from './map.types';
@@ -90,6 +92,9 @@ interface MapCompProps {
   minimapPlacement?: PanelPosition;
   localShowShipName?: boolean;
   defaultViewport?: Viewport;
+  visibleSystemIds?: Set<string>;
+  layoutPositions?: LayoutPositions | null;
+  viewMode?: ViewMode;
 }
 
 const MapComp = ({
@@ -112,12 +117,15 @@ const MapComp = ({
   localShowShipName = false,
   onChangeViewport,
   defaultViewport,
+  visibleSystemIds,
+  layoutPositions,
+  viewMode = 'all',
 }: MapCompProps) => {
   const { getNodes, setViewport } = useReactFlow();
-  const [nodes, , onNodesChange] = useNodesState<Node<SolarSystemRawType>>(initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<SolarSystemRawType>>(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState<Edge<SolarSystemConnection>>(initialEdges);
 
-  useMapHandlers(refn, onSelectionChange);
+  useMapHandlers(refn, onSelectionChange, layoutPositions ?? null, viewMode);
   useUpdateNodes(nodes);
 
   const { handleRootContext, ...rootCtxProps } = useContextMenuRootHandlers({ onAddSystem, onCommand });
@@ -125,6 +133,31 @@ const MapComp = ({
   const { update } = useMapState();
   const { variant, gap, size, color } = useBackgroundVars(theme);
   const { isPanAndDrag, nodeComponent, connectionMode } = getBehaviorForTheme(theme || 'default');
+
+  // Apply per-view layout positions when the layout changes (view switch).
+  // Manual drags during a view are driven by ReactFlow's own node state and are
+  // not overwritten here because layoutPositions only changes on view switch.
+  useEffect(() => {
+    if (!layoutPositions) return;
+    setNodes(prev => prev.map(n => {
+      const pos = layoutPositions[n.id];
+      return pos ? { ...n, position: pos } : n;
+    }));
+  }, [layoutPositions, setNodes]);
+
+  // Apply view-mode visibility filtering via the hidden property
+  const displayNodes = useMemo(() => {
+    if (!visibleSystemIds) return nodes;
+    return nodes.map(n => ({ ...n, hidden: !visibleSystemIds.has(n.id) }));
+  }, [nodes, visibleSystemIds]);
+
+  const displayEdges = useMemo(() => {
+    if (!visibleSystemIds) return edges;
+    return edges.map(e => ({
+      ...e,
+      hidden: !visibleSystemIds.has(e.source) || !visibleSystemIds.has(e.target),
+    }));
+  }, [edges, visibleSystemIds]);
 
   const refVars = useRef({ onChangeViewport });
   refVars.current = { onChangeViewport };
@@ -236,8 +269,8 @@ const MapComp = ({
         className={clsx(classes.MapRoot, { [classes.BackgroundAlternateColor]: isSoftBackground })}
       >
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={displayNodes}
+          edges={displayEdges}
           onNodesChange={handleNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}

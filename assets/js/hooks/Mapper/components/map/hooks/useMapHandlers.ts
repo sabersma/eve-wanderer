@@ -32,9 +32,16 @@ import {
   useMapUpdateSystems,
   useSelectSystems,
 } from './api';
+import { ViewMode } from '@/hooks/Mapper/mapRootProvider';
+import { LayoutPositions } from '../helpers/layout';
 
-export const useMapHandlers = (ref: ForwardedRef<MapHandlers>, onSelectionChange: OnMapSelectionChange) => {
-  const mapInit = useMapInit();
+export const useMapHandlers = (
+  ref: ForwardedRef<MapHandlers>,
+  onSelectionChange: OnMapSelectionChange,
+  layoutPositions: LayoutPositions | null,
+  viewMode: ViewMode,
+) => {
+  const mapInit = useMapInit(layoutPositions, viewMode);
   const mapAddSystems = useMapAddSystems();
   const mapUpdateSystems = useMapUpdateSystems();
   const removeSystems = useMapRemoveSystems(onSelectionChange);

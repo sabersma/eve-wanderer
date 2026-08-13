@@ -1,0 +1,70 @@
+.ViewModeSelector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+}
+
+.ToggleGroup {
+  display: flex;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border-color, #444);
+}
+
+.ToggleButton {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: #aaa;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+
+  &:not(:last-child) {
+    border-right: 1px solid var(--border-color, #444);
+  }
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #ddd;
+  }
+
+  &.ToggleButtonActive {
+    background: rgba(100, 150, 255, 0.25);
+    color: #fff;
+  }
+}
+
+.HomeDropdown {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.NoHomeHint {
+  font-size: 0.7rem;
+  color: #e88;
+  white-space: nowrap;
+}
+
+.Dropdown {
+  min-width: 160px;
+  font-size: 0.75rem !important;
+
+  :global {
+    .p-dropdown-label {
+      padding: 4px 8px !important;
+      font-size: 0.75rem !important;
+    }
+
+    .p-dropdown-trigger {
+      width: 24px !important;
+    }
+  }
+}
+
+.DropdownPanel {
+  font-size: 0.75rem;
+}

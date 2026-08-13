@@ -94,3 +94,6 @@ config :wanderer_app,
   # WebSocket connection URL for WandererKills service
   wanderer_kills_base_url:
     System.get_env("WANDERER_KILLS_BASE_URL", "ws://host.docker.internal:4004")
+
+# Disable tzdata autoupdate to avoid HTTP crashes on startup
+config :tzdata, :autoupdate, :disabled

@@ -1,5 +1,5 @@
 import { ContextStoreDataUpdate, useContextStore } from '@/hooks/Mapper/utils';
-import { createContext, Dispatch, ForwardedRef, forwardRef, SetStateAction, useContext } from 'react';
+import { createContext, Dispatch, ForwardedRef, forwardRef, SetStateAction, useContext, useEffect, useRef } from 'react';
 import {
   ActivitySummary,
   CommandLinkSignatureToSystem,
@@ -41,7 +41,10 @@ import {
 } from '@/hooks/Mapper/mapRootProvider/constants.ts';
 import { useMapUserSettings } from '@/hooks/Mapper/mapRootProvider/hooks/useMapUserSettings.ts';
 import { useGlobalHooks } from '@/hooks/Mapper/mapRootProvider/hooks/useGlobalHooks.ts';
+import { useViewModeSettings } from '@/hooks/Mapper/mapRootProvider/hooks/useViewModeSettings.ts';
 import { DEFAULT_SIGNATURE_SETTINGS, SignatureSettingsType } from '@/hooks/Mapper/constants/signatures';
+
+export type ViewMode = 'all' | 'home';
 
 export type MapRootData = MapUnionTypes & {
   selectedSystems: string[];
@@ -57,6 +60,8 @@ export type MapRootData = MapUnionTypes & {
   loadingPublicRoutes: boolean;
   map_slug: string | null;
   expiredCharacters: string[];
+  viewMode: ViewMode;
+  selectedHomeSystemId: string | null;
 };
 
 const INITIAL_DATA: MapRootData = {
@@ -104,6 +109,8 @@ const INITIAL_DATA: MapRootData = {
   loadingPublicRoutes: false,
   map_slug: null,
   expiredCharacters: [],
+  viewMode: 'all',
+  selectedHomeSystemId: null,
 };
 
 export enum InterfaceStoredSettingsProps {
@@ -225,12 +232,41 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
   const { update, ref } = useContextStore<MapRootData>({ ...INITIAL_DATA });
 
   const storedSettings = useMapUserSettings(ref, outCommand);
+  const { isReady } = storedSettings;
+  const { viewModeSettings, updateViewModeSettings } = useViewModeSettings(ref.map_slug);
 
   const { windowsSettings, toggleWidgetVisibility, updateWidgetSettings, resetWidgets } =
     useStoreWidgets(storedSettings);
 
   const comments = useComments({ outCommand });
   const charactersCache = useCharactersCache({ outCommand });
+
+  // Sync persisted viewMode settings -> MapRootData on init
+  const viewModeInitialized = useRef(false);
+  useEffect(() => {
+    if (isReady && !viewModeInitialized.current) {
+      viewModeInitialized.current = true;
+      if (viewModeSettings.viewMode && viewModeSettings.viewMode !== 'all') {
+        update({
+          viewMode: viewModeSettings.viewMode,
+          selectedHomeSystemId: viewModeSettings.selectedHomeSystemId ?? null,
+        });
+      }
+    }
+  }, [isReady, viewModeSettings, update]);
+
+  // Sync MapRootData viewMode changes -> persisted settings
+  const prevViewModeRef = useRef({ viewMode: ref.viewMode, selectedHomeSystemId: ref.selectedHomeSystemId });
+  useEffect(() => {
+    const prev = prevViewModeRef.current;
+    if (ref.viewMode !== prev.viewMode || ref.selectedHomeSystemId !== prev.selectedHomeSystemId) {
+      prevViewModeRef.current = { viewMode: ref.viewMode, selectedHomeSystemId: ref.selectedHomeSystemId };
+      updateViewModeSettings({
+        viewMode: ref.viewMode,
+        selectedHomeSystemId: ref.selectedHomeSystemId,
+      });
+    }
+  }, [ref.viewMode, ref.selectedHomeSystemId, updateViewModeSettings]);
 
   return (
     <MapRootContext.Provider

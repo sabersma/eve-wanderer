@@ -26,6 +26,8 @@ import {
 } from '@/hooks/Mapper/components/mapInterface/components/AddSystemDialog';
 import { SystemPingDialog } from '@/hooks/Mapper/components/mapInterface/components/SystemPingDialog';
 import { useCommonMapEventProcessor } from '@/hooks/Mapper/components/mapWrapper/hooks/useCommonMapEventProcessor.ts';
+import { useFilteredMapData } from '@/hooks/Mapper/components/mapWrapper/hooks/useFilteredMapData';
+import { useViewLayout } from '@/hooks/Mapper/components/mapWrapper/hooks/useViewLayout';
 import { MINIMAP_PLACEMENT_MAP } from '@/hooks/Mapper/constants.ts';
 import { MiniMapPlacement } from '@/hooks/Mapper/mapRootProvider/types.ts';
 import { PingType } from '@/hooks/Mapper/types/ping.ts';
@@ -47,6 +49,9 @@ export const MapWrapper = () => {
       systems,
       linkSignatureToSystem,
       systemSignatures,
+      viewMode,
+      selectedHomeSystemId,
+      connections,
     },
     storedSettings: { interfaceSettings, settingsLocal, mapSettings, mapSettingsUpdate },
   } = useMapRootState();
@@ -64,10 +69,46 @@ export const MapWrapper = () => {
 
   const { deleteSystems } = useDeleteSystems();
   const { mapRef, runCommand } = useCommonMapEventProcessor();
-  const { getNodes } = useReactFlow();
+  const { getNodes, setNodes } = useReactFlow();
+
+  // Compute visible systems/connections based on current view mode
+  const {
+    visibleSystemIds,
+    effectiveLockedIds,
+    systems: filteredSystems,
+    connections: filteredConnections,
+  } = useFilteredMapData(systems, connections, viewMode, selectedHomeSystemId);
+
+  // Per-view local layout (null in 'all' view → use shared global coordinates)
+  const { layoutPositions, savePosition, rearrangeLayout } = useViewLayout(
+    viewMode,
+    selectedHomeSystemId,
+    filteredSystems,
+    filteredConnections,
+    effectiveLockedIds,
+  );
+
+  // In a home view, "re-arrange layout" should be local-only (recompute the
+  // home BFS layout and persist it) instead of a global backend rearrange.
+  const wrappedOutCommand: OutCommandHandler = useCallback(
+    event => {
+      if (event.type === OutCommand.rearrangeSystems && viewMode === 'home') {
+        rearrangeLayout();
+        // @ts-ignore
+        return new Promise(resolve => resolve(null));
+      }
+      return outCommand(event);
+    },
+    [outCommand, viewMode, rearrangeLayout],
+  );
 
   const { updateLinkSignatureToSystem } = useCommandsSystems();
-  const { open, ...systemContextProps } = useContextMenuSystemHandlers({ systems, hubs, userHubs, outCommand });
+  const { open, ...systemContextProps } = useContextMenuSystemHandlers({
+    systems,
+    hubs,
+    userHubs,
+    outCommand: wrappedOutCommand,
+  });
   const { handleSystemMultipleContext, ...systemMultipleCtxProps } = useContextMenuSystemMultipleHandlers();
 
   const [openSettings, setOpenSettings] = useState<string | null>(null);
@@ -84,6 +125,8 @@ export const MapWrapper = () => {
     systemSignatures,
     deleteSystems,
     mapSettingsUpdate,
+    viewMode,
+    layoutPositions,
   });
   ref.current = {
     selectedConnections,
@@ -93,10 +136,28 @@ export const MapWrapper = () => {
     systemSignatures,
     deleteSystems,
     mapSettingsUpdate,
+    viewMode,
+    layoutPositions,
   };
 
   useMapEventListener(event => {
     runCommand(event);
+
+    // Restore the per-view home layout after a synchronous data-coordinate
+    // update (e.g. another user dragging in the "all" view). The init re-push
+    // case is handled inside useMapInit (it runs on a debounce), so it is not
+    // repeated here.
+    if (event.name === Commands.updateSystems) {
+      const { viewMode: currentViewMode, layoutPositions: currentLayout } = ref.current;
+      if (currentViewMode === 'home' && currentLayout) {
+        setNodes(nodes =>
+          nodes.map(n => {
+            const pos = currentLayout[n.id];
+            return pos ? { ...n, position: pos } : n;
+          }),
+        );
+      }
+    }
 
     if (event.name === Commands.init) {
       const { selectedSystems } = ref.current;
@@ -142,13 +203,30 @@ export const MapWrapper = () => {
           // @ts-ignore
           setOpenSettings(event.data.system_id);
           break;
+        case OutCommand.updateSystemPosition:
+          if (viewMode === 'home') {
+            const { solar_system_id, position } = event.data as { solar_system_id: string; position: XYPosition };
+            savePosition(solar_system_id, position);
+            // @ts-ignore
+            return new Promise(resolve => resolve(null));
+          }
+          return outCommand(event);
+        case OutCommand.updateSystemPositions:
+          if (viewMode === 'home') {
+            (event.data as { solar_system_id: string; position: XYPosition }[]).forEach(x =>
+              savePosition(x.solar_system_id, x.position),
+            );
+            // @ts-ignore
+            return new Promise(resolve => resolve(null));
+          }
+          return outCommand(event);
         default:
           return outCommand(event);
       }
       // @ts-ignore
       return new Promise(resolve => resolve(null));
     },
-    [outCommand],
+    [outCommand, viewMode, savePosition],
   );
 
   const handleSystemContextMenu = useCallback(
@@ -247,6 +325,12 @@ export const MapWrapper = () => {
     outCommand({ type: OutCommand.loadSignatures, data: {} });
   }, [isShowUnsplashedSignatures, systems]);
 
+  // Filter pings to only show on visible systems
+  const visiblePings = useMemo(
+    () => pings.filter(p => visibleSystemIds.has(p.solar_system_id)),
+    [pings, visibleSystemIds],
+  );
+
   const { showMinimap, minimapPosition, minimapClasses } = useMemo(() => {
     const rawPlacement = minimapPlacement == null ? MiniMapPlacement.rightBottom : minimapPlacement;
 
@@ -280,11 +364,14 @@ export const MapWrapper = () => {
         isShowBackgroundPattern={isShowBackgroundPattern}
         isSoftBackground={isSoftBackground}
         theme={theme}
-        pings={pings}
+        pings={visiblePings}
         onAddSystem={onAddSystem}
         minimapPlacement={minimapPosition}
         localShowShipName={settingsLocal.showShipName}
         defaultViewport={mapSettings.viewport}
+        visibleSystemIds={visibleSystemIds}
+        layoutPositions={layoutPositions}
+        viewMode={viewMode}
       />
 
       {openSettings != null && (

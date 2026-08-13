@@ -63,5 +63,7 @@ export const getDefaultSettingsByType = (type: SettingsTypes): SettingsWrapper<a
       return createWidgetSettings(STORED_INTERFACE_DEFAULT_VALUES);
     case SettingsTypes.map:
       return createWidgetSettings(DEFAULT_MAP_SETTINGS);
+    default:
+      return createWidgetSettings({});
   }
 };

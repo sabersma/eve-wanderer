@@ -4,9 +4,10 @@ import { useCallback, useRef } from 'react';
 import { SolarSystemRawType } from '@/hooks/Mapper/types';
 import { getSystemById } from '@/hooks/Mapper/helpers';
 import clsx from 'clsx';
-import { LABELS, LABELS_INFO, LABELS_ORDER } from '@/hooks/Mapper/components/map/constants.ts';
+import { SOLAR_SYSTEM_CLASS_IDS } from '@/hooks/Mapper/components/map/constants.ts';
 import { GRADIENT_MENU_ACTIVE_CLASSES } from '@/hooks/Mapper/constants.ts';
 import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager.ts';
+import { getSystemStaticInfo } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic';
 
 export const getLabels = (labels: string | null) => (labels ? (labels ?? '').split(',') : []);
 export const updateLabels = (labels: string | null, label: string) => {
@@ -19,6 +20,43 @@ export const updateLabels = (labels: string | null, label: string) => {
   }
 
   return [...parsedLabels].join(',');
+};
+
+/**
+ * 根据星系类型生成标签建议的 code 前缀：
+ * C1~C6 -> 1~6，C13 -> 13，HS -> 7，LS -> 8，null -> 9，
+ * 三神裔 -> 三神，流浪洞 -> 流浪，席拉 -> 席拉
+ */
+const getSystemClassCode = (systemClass: number | undefined): string | null => {
+  if (systemClass == null) {
+    return null;
+  }
+
+  if ([1, 2, 3, 4, 5, 6, 7, 8, 9, 13].includes(systemClass)) {
+    return String(systemClass);
+  }
+
+  if (systemClass === SOLAR_SYSTEM_CLASS_IDS.pochven) {
+    return '三神';
+  }
+
+  if (
+    [
+      SOLAR_SYSTEM_CLASS_IDS.sentinel,
+      SOLAR_SYSTEM_CLASS_IDS.barbican,
+      SOLAR_SYSTEM_CLASS_IDS.vidette,
+      SOLAR_SYSTEM_CLASS_IDS.conflux,
+      SOLAR_SYSTEM_CLASS_IDS.redoubt,
+    ].includes(systemClass)
+  ) {
+    return '流浪';
+  }
+
+  if (systemClass === SOLAR_SYSTEM_CLASS_IDS.thera) {
+    return '席拉';
+  }
+
+  return null;
 };
 
 export const useLabelsMenu = (
@@ -45,15 +83,18 @@ export const useLabelsMenu = (
       ];
     }
 
-    // const labels = getLabels(system.labels);
-    const hasLabels = labels?.list?.length > 0;
-    const statusList = hasLabels ? LABELS_ORDER : LABELS_ORDER.slice(1);
+    // 根据当前星系类型生成 custom label 建议（如 C1 -> 1B/1C/1D/K1B/K1C/K1D）
+    const staticInfo = systemId ? getSystemStaticInfo(systemId) : undefined;
+    const code = getSystemClassCode(staticInfo?.system_class);
+    const suggestions = code
+      ? [`${code}B`, `${code}C`, `${code}D`, `K${code}`, `K${code}B`, `K${code}C`, `K${code}D`]
+      : [];
 
     return [
       {
         label: 'Labels',
         icon: PrimeIcons.BOOKMARK,
-        className: clsx({ [GRADIENT_MENU_ACTIVE_CLASSES]: hasLabels }),
+        className: clsx({ [GRADIENT_MENU_ACTIVE_CLASSES]: labels.customLabel.length > 0 }),
         items: [
           ...(labels.customLabel.length > 0
             ? [
@@ -72,22 +113,20 @@ export const useLabelsMenu = (
             icon: 'pi pi-language',
             command: onCustomLabelDialog,
           },
-          { separator: true },
-          ...statusList.map(x => ({
-            label: LABELS_INFO[x].name,
-            icon: x === LABELS.clear ? PrimeIcons.TRASH : PrimeIcons.BOOKMARK,
-            command: () => {
-              if (x === LABELS.clear) {
-                labels.clearLabels();
-                onSystemLabels(labels.toString());
-                return;
-              }
-
-              labels.toggleLabel(x);
-              onSystemLabels(labels.toString());
-            },
-            className: clsx({ [GRADIENT_MENU_ACTIVE_CLASSES]: labels.hasLabel(x) }),
-          })),
+          ...(suggestions.length > 0
+            ? [
+                { separator: true },
+                ...suggestions.map(value => ({
+                  label: value,
+                  icon: PrimeIcons.BOOKMARK,
+                  command: () => {
+                    labels.updateCustomLabel(value);
+                    onSystemLabels(labels.toString());
+                  },
+                  className: clsx({ [GRADIENT_MENU_ACTIVE_CLASSES]: labels.customLabel === value }),
+                })),
+              ]
+            : []),
         ],
       },
     ];

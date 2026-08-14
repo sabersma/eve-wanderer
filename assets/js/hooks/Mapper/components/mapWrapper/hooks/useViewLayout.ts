@@ -66,17 +66,41 @@ export function useViewLayout(
       return;
     }
 
-    // Incremental: remove deleted systems, add positions for new systems.
+    // Incremental: remove deleted systems, add positions for new systems, and
+    // re-layout systems that just gained a connection (was isolated before).
+    const sysMap = new Map(filteredSystems.map(s => [s.id, s]));
     const missingIds = filteredSystems.filter(s => !stored[s.id]).map(s => s.id);
     const deletedIds = Object.keys(stored).filter(id => !visibleIds.has(id));
 
-    if (missingIds.length === 0 && deletedIds.length === 0) return;
+    // A system was laid out while isolated (position == its data coordinate),
+    // but now has a neighbor in the cache — re-anchor it to that neighbor.
+    const relayoutIds = filteredSystems
+      .filter(s => {
+        const pos = stored[s.id];
+        if (!pos) return false;
+        const sys = sysMap.get(s.id);
+        if (!sys) return false;
+        if (pos.x !== sys.position.x || pos.y !== sys.position.y) return false;
+        return filteredConnections.some(c => {
+          const other = c.source === s.id ? c.target : c.source;
+          return other !== s.id && stored[other] !== undefined;
+        });
+      })
+      .map(s => s.id);
+
+    if (missingIds.length === 0 && deletedIds.length === 0 && relayoutIds.length === 0) return;
 
     const merged = { ...stored };
     deletedIds.forEach(id => {
       delete merged[id];
     });
+    relayoutIds.forEach(id => {
+      delete merged[id];
+    });
     missingIds.forEach(id => {
+      merged[id] = computeNewNodePosition(id, merged, filteredSystems, filteredConnections, effectiveLockedIds);
+    });
+    relayoutIds.forEach(id => {
       merged[id] = computeNewNodePosition(id, merged, filteredSystems, filteredConnections, effectiveLockedIds);
     });
 

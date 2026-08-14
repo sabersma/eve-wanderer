@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import useLocalStorageState from 'use-local-storage-state';
 import { SolarSystemConnection, SolarSystemRawType } from '@/hooks/Mapper/types';
 import { ViewMode } from '@/hooks/Mapper/mapRootProvider';
@@ -52,6 +52,10 @@ export function useViewLayout(
     return computeBfsLayout(selectedHomeSystemId, filteredSystems, filteredConnections, effectiveLockedIds);
   }, [viewMode, layoutKey, selectedHomeSystemId, filteredSystems, filteredConnections, effectiveLockedIds, viewLayouts]);
 
+  // Tracks the previous connections to detect newly-added connections (used to
+  // re-anchor systems that were isolated before gaining a connection).
+  const prevConnectionsRef = useRef<SolarSystemConnection[] | null>(null);
+
   // Persist/incrementally maintain the cache.
   useEffect(() => {
     if (viewMode !== 'home' || !selectedHomeSystemId || !layoutKey) return;
@@ -68,25 +72,28 @@ export function useViewLayout(
 
     // Incremental: remove deleted systems, add positions for new systems, and
     // re-layout systems that just gained a connection (was isolated before).
-    const sysMap = new Map(filteredSystems.map(s => [s.id, s]));
     const missingIds = filteredSystems.filter(s => !stored[s.id]).map(s => s.id);
     const deletedIds = Object.keys(stored).filter(id => !visibleIds.has(id));
 
-    // A system was laid out while isolated (position == its data coordinate),
-    // but now has a neighbor in the cache — re-anchor it to that neighbor.
-    const relayoutIds = filteredSystems
-      .filter(s => {
-        const pos = stored[s.id];
-        if (!pos) return false;
-        const sys = sysMap.get(s.id);
-        if (!sys) return false;
-        if (pos.x !== sys.position.x || pos.y !== sys.position.y) return false;
-        return filteredConnections.some(c => {
-          const other = c.source === s.id ? c.target : c.source;
-          return other !== s.id && stored[other] !== undefined;
-        });
-      })
-      .map(s => s.id);
+    // Detect systems that just gained a connection by comparing against the
+    // previous connections. This avoids re-laying systems whose global data
+    // coordinate happens to equal a BFS layout coordinate (e.g. after a global
+    // rearrange), which would otherwise cause layout churn on any data update.
+    const prevConnections = prevConnectionsRef.current;
+    prevConnectionsRef.current = filteredConnections;
+
+    const relayoutSet = new Set<string>();
+    if (prevConnections !== null) {
+      const newConnections = filteredConnections.filter(c => !prevConnections.some(p => p.id === c.id));
+      for (const c of newConnections) {
+        for (const endpoint of [c.source, c.target]) {
+          if (endpoint !== selectedHomeSystemId && stored[endpoint] !== undefined) {
+            relayoutSet.add(endpoint);
+          }
+        }
+      }
+    }
+    const relayoutIds = [...relayoutSet];
 
     if (missingIds.length === 0 && deletedIds.length === 0 && relayoutIds.length === 0) return;
 

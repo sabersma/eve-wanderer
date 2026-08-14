@@ -177,7 +177,12 @@ defmodule WandererAppWeb.MapCoreEventHandler do
       ) do
     is_version_valid? = to_string(version) == to_string(app_version)
 
-    if is_version_valid? do
+    # The frontend writes `wandererLastVersion` only after a delayed reload. Before
+    # that (first load / fresh tab) `version` is nil, so the version check would
+    # wrongly block the init re-push and leave the map stale after window restore.
+    version_known? = not is_nil(version) and version != ""
+
+    if is_version_valid? or not version_known? do
       map_id = Map.get(assigns, :map_id)
 
       case map_id do

@@ -119,5 +119,30 @@ export const useMapperHandlers = (handlerRefs: RefObject<MapHandlers>[], hooksRe
     hooksRef.current.pushEventAsync('ui_loaded', { version: localStorage.getItem(LAST_VERSION_KEY) });
   }, [hooksRef.current, visible]);
 
+  // `document.hidden` (visibilitychange) does not change when the browser window
+  // is minimized (only on tab switch). Use blur/focus as an additional trigger so
+  // minimizing + restoring the window also re-fetches the map via ui_loaded.
+  const windowBlurred = useRef(false);
+
+  useEffect(() => {
+    const handleBlur = () => {
+      windowBlurred.current = true;
+    };
+
+    const handleFocus = () => {
+      if (!windowBlurred.current) return;
+      windowBlurred.current = false;
+      hooksRef.current.pushEventAsync('ui_loaded', { version: localStorage.getItem(LAST_VERSION_KEY) });
+    };
+
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [hooksRef.current]);
+
   return { handleCommand, handleMapEvent };
 };

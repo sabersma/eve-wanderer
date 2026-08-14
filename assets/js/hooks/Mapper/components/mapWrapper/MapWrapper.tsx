@@ -70,7 +70,7 @@ export const MapWrapper = () => {
 
   const { deleteSystems } = useDeleteSystems();
   const { mapRef, runCommand } = useCommonMapEventProcessor();
-  const { getNodes, setNodes } = useReactFlow();
+  const { getNodes } = useReactFlow();
 
   // Compute visible systems/connections based on current view mode
   const {
@@ -127,8 +127,6 @@ export const MapWrapper = () => {
     systemSignatures,
     deleteSystems,
     mapSettingsUpdate,
-    viewMode,
-    layoutPositions,
   });
   ref.current = {
     selectedConnections,
@@ -138,28 +136,10 @@ export const MapWrapper = () => {
     systemSignatures,
     deleteSystems,
     mapSettingsUpdate,
-    viewMode,
-    layoutPositions,
   };
 
   useMapEventListener(event => {
     runCommand(event);
-
-    // Restore the per-view home layout after a synchronous data-coordinate
-    // update (e.g. another user dragging in the "all" view). The init re-push
-    // case is handled inside useMapInit (it runs on a debounce), so it is not
-    // repeated here.
-    if (event.name === Commands.updateSystems) {
-      const { viewMode: currentViewMode, layoutPositions: currentLayout } = ref.current;
-      if (currentViewMode === 'home' && currentLayout) {
-        setNodes(nodes =>
-          nodes.map(n => {
-            const pos = currentLayout[n.id];
-            return pos ? { ...n, position: pos } : n;
-          }),
-        );
-      }
-    }
 
     if (event.name === Commands.init) {
       const { selectedSystems } = ref.current;

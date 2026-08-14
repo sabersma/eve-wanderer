@@ -74,8 +74,7 @@ export function computeBfsLayout(
   const depth = new Map<string, number>([[homeId, 0]]);
   const parent = new Map<string, string>();
   const direction = new Map<string, number>();
-  const byDepth = new Map<number, string[]>();
-  byDepth.set(0, [homeId]);
+  const branchRoot = new Map<string, string>();
 
   const visited = new Set<string>([homeId]);
   const queue: string[] = [homeId];
@@ -106,39 +105,42 @@ export function computeBfsLayout(
           : direction.get(cur) ?? 1;
       direction.set(nb, dir);
 
-      if (!byDepth.has(nbDepth)) byDepth.set(nbDepth, []);
-      byDepth.get(nbDepth)!.push(nb);
+      // Branch root: a direct child of home is its own branch; descendants inherit.
+      branchRoot.set(nb, curDepth === 0 ? nb : branchRoot.get(cur) ?? nb);
 
       queue.push(nb);
     }
   }
 
-  // Assign positions depth-by-depth
   const positions: LayoutPositions = {
     [homeId]: { x: home.position.x, y: home.position.y },
   };
 
-  const maxDepth = Math.max(...byDepth.keys());
-  for (let d = 1; d <= maxDepth; d++) {
-    const ids = byDepth.get(d) ?? [];
+  // Group non-home, non-locked systems into branches by {direction, branchRoot}
+  const grouped = new Map<string, string[]>();
+  const rightBranches: string[][] = [];
+  const leftBranches: string[][] = [];
 
-    // Sort by parent's already-computed Y for horizontal alignment
-    ids.sort((a, b) => {
-      const ya = positions[parent.get(a)!]?.y ?? home.position.y;
-      const yb = positions[parent.get(b)!]?.y ?? home.position.y;
-      return ya - yb;
-    });
+  for (const sid of depth.keys()) {
+    if (sid === homeId || lockedSet.has(sid)) continue;
+    const dir = direction.get(sid) ?? 1;
+    const branch = branchRoot.get(sid) ?? sid;
+    const key = `${dir}:${branch}`;
 
-    const usedY = new Set<number>();
-    for (const sid of ids) {
-      const parentPos = positions[parent.get(sid)!] ?? { x: home.position.x, y: home.position.y };
-      const dir = direction.get(sid) ?? 1;
-      const x = home.position.x + dir * d * SPACING_X;
-      const y = findClosestY(parentPos.y, usedY, SPACING_Y);
-      positions[sid] = { x, y };
-      usedY.add(y);
+    if (!grouped.has(key)) {
+      const list: string[] = [];
+      grouped.set(key, list);
+      (dir === 1 ? rightBranches : leftBranches).push(list);
     }
+    grouped.get(key)!.push(sid);
   }
+
+  const sortBranch = (sids: string[]) => sids[0];
+  rightBranches.sort((a, b) => (sortBranch(a) < sortBranch(b) ? -1 : 1));
+  leftBranches.sort((a, b) => (sortBranch(a) < sortBranch(b) ? -1 : 1));
+
+  layoutSide(positions, { x: home.position.x, y: home.position.y }, 1, rightBranches, depth, parent);
+  layoutSide(positions, { x: home.position.x, y: home.position.y }, -1, leftBranches, depth, parent);
 
   // Effective-locked systems keep their original (global) position
   for (const sid of effectiveLockedIds) {
@@ -146,7 +148,86 @@ export function computeBfsLayout(
     if (s) positions[sid] = { x: s.position.x, y: s.position.y };
   }
 
+  // Isolated systems (no connections) keep their current position (the
+  // user-dragged location) instead of being forced back to their data
+  // coordinate, which may be a global rearrange layout.
+  const connectedIds = new Set<string>();
+  for (const c of connections) {
+    connectedIds.add(c.source);
+    connectedIds.add(c.target);
+  }
+  for (const s of systems) {
+    if (positions[s.id]) continue;
+    if (connectedIds.has(s.id)) continue;
+    positions[s.id] = currentLayout?.[s.id] ?? { x: s.position.x, y: s.position.y };
+  }
+
   return positions;
+}
+
+/**
+ * Lay out the branches on one side (left or right) of home. Each branch gets
+ * its own vertical region (branch isolation), so multiple branches do not
+ * overlap. Mirrors the backend rearrange_systems branch-isolation logic.
+ */
+function layoutSide(
+  positions: LayoutPositions,
+  homePos: LayoutPosition,
+  dir: number,
+  branches: string[][],
+  depth: Map<string, number>,
+  parent: Map<string, string>,
+) {
+  if (branches.length === 0) return;
+
+  // Branch height = max nodes at any single depth * spacing_y + margin
+  const branchHeights = branches.map(sids => {
+    const byDepth = new Map<number, number>();
+    for (const sid of sids) {
+      const d = depth.get(sid)!;
+      byDepth.set(d, (byDepth.get(d) ?? 0) + 1);
+    }
+    const maxPerDepth = Math.max(...byDepth.values(), 1);
+    return maxPerDepth * SPACING_Y + MARGIN_Y;
+  });
+
+  const totalHeight = branchHeights.reduce((a, b) => a + b, 0);
+  let baseY = homePos.y - totalHeight / 2;
+
+  branches.forEach((sids, idx) => {
+    const branchHeight = branchHeights[idx];
+    const branchCenterY = baseY + branchHeight / 2;
+
+    // Group this branch's systems by depth (columns)
+    const byDepth = new Map<number, string[]>();
+    for (const sid of sids) {
+      const d = depth.get(sid)!;
+      if (!byDepth.has(d)) byDepth.set(d, []);
+      byDepth.get(d)!.push(sid);
+    }
+    const sortedDepths = [...byDepth.keys()].sort((a, b) => a - b);
+
+    for (const d of sortedDepths) {
+      const sidsAtDepth = byDepth.get(d)!;
+
+      // Depth-1 nodes are children of home (which is not inside this branch),
+      // so they anchor to the branch's own vertical center instead of home.y.
+      const parentYOf = (sid: string) =>
+        d === 1 ? branchCenterY : positions[parent.get(sid)!]?.y ?? branchCenterY;
+
+      sidsAtDepth.sort((a, b) => parentYOf(a) - parentYOf(b));
+
+      const usedY = new Set<number>();
+      for (const sid of sidsAtDepth) {
+        const y = findClosestY(parentYOf(sid), usedY, SPACING_Y);
+        const x = homePos.x + dir * d * SPACING_X;
+        positions[sid] = { x, y };
+        usedY.add(y);
+      }
+    }
+
+    baseY += branchHeight;
+  });
 }
 
 function isOccupied(candidate: LayoutPosition, stored: LayoutPositions): boolean {

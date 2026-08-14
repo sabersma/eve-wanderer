@@ -22,6 +22,7 @@ export type HeaderProps = {
   undoCountdown?: number;
   onUndoClick: () => void;
   onSettingsClick: () => void;
+  onAddSignature: () => void;
 };
 
 export const SystemSignaturesHeader = ({
@@ -32,6 +33,7 @@ export const SystemSignaturesHeader = ({
   undoCountdown,
   onUndoClick,
   onSettingsClick,
+  onAddSignature,
 }: HeaderProps) => {
   const {
     data: { selectedSystems },
@@ -56,6 +58,10 @@ export const SystemSignaturesHeader = ({
         </div>
 
         <LayoutEventBlocker className="flex gap-2.5">
+          <WdTooltipWrapper content="Add signature">
+            <WdImgButton className={PrimeIcons.PLUS} onClick={onAddSignature} />
+          </WdTooltipWrapper>
+
           <WdTooltipWrapper content="Enable Lazy delete">
             <WdCheckbox
               size="xs"

@@ -206,6 +206,15 @@ export const SolarSystemNodeDefault = memo((props: NodeProps<MapSolarSystemType>
         </div>
       )}
 
+      {nodeVars.selected && (
+        <div className="absolute top-[-4px] left-[-4px] w-[calc(100%+8px)] h-[calc(100%+8px)] pointer-events-none">
+          <div className="absolute left-0 top-0 w-3 h-2 border-t-2 border-l-2 border-amber-300"></div>
+          <div className="absolute right-0 top-0 w-3 h-2 border-t-2 border-r-2 border-amber-300"></div>
+          <div className="absolute left-0 bottom-0 w-3 h-2 border-b-2 border-l-2 border-amber-300"></div>
+          <div className="absolute right-0 bottom-0 w-3 h-2 border-b-2 border-r-2 border-amber-300"></div>
+        </div>
+      )}
+
       <div className={classes.Handlers}>
         <Handle
           type="source"

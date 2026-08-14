@@ -5,7 +5,7 @@ import {
 import { SystemsSettingsProvider } from '@/hooks/Mapper/components/mapRootContent/components/SignatureSettings/Provider.tsx';
 import { WdButton } from '@/hooks/Mapper/components/ui-kit';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
-import { MassState, OutCommand, SignatureGroup, SystemSignature, TimeStatus } from '@/hooks/Mapper/types';
+import { MassState, OutCommand, SignatureGroup, SignatureKind, SystemSignature, TimeStatus } from '@/hooks/Mapper/types';
 import { Dialog } from 'primereact/dialog';
 import { InputText } from 'primereact/inputtext';
 import { useCallback, useEffect } from 'react';
@@ -35,7 +35,64 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
     // TODO: need fix
     async (e: any) => {
       e?.preventDefault();
+
+      // Add mode: construct a new signature and send via `added`
       if (!signatureData) {
+        const {
+          eve_id,
+          group,
+          name,
+          type,
+          destType,
+          time_status,
+          mass_status,
+          temporary_name,
+          description,
+          linked_system,
+        } = signatureForm.getValues();
+
+        if (!eve_id || !group) {
+          return;
+        }
+
+        const newSig: SystemSignature = {
+          eve_id,
+          kind: SignatureKind.CosmicSignature,
+          group,
+          name: name ?? '',
+          type: type ?? '',
+          description,
+          temporary_name,
+        };
+
+        if (group === SignatureGroup.Wormhole) {
+          newSig.custom_info = JSON.stringify({ destType, time_status, mass_status });
+        }
+
+        await outCommand({
+          type: OutCommand.updateSignatures,
+          data: {
+            system_id: systemId,
+            added: [newSig],
+            updated: [],
+            removed: [],
+            deleteTimeout: 0,
+          },
+        });
+
+        if (group === SignatureGroup.Wormhole && linked_system) {
+          await outCommand({
+            type: OutCommand.linkSignatureToSystem,
+            data: {
+              signature_eve_id: eve_id,
+              solar_system_source: systemId,
+              solar_system_target: linked_system,
+            },
+          });
+        }
+
+        signatureForm.reset();
+        onHide();
         return;
       }
 
@@ -163,7 +220,7 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
 
   return (
     <Dialog
-      header={`Signature Edit [${signatureData?.eve_id}]`}
+      header={signatureData ? `Signature Edit [${signatureData.eve_id}]` : 'Signature Add'}
       visible={show}
       draggable
       resizable={false}
@@ -182,6 +239,28 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
           <form onSubmit={handleSave}>
             <div className="flex flex-col gap-2 justify-between">
               <div className="w-full flex flex-col gap-1 p-1 min-h-[150px]">
+                {!signatureData && (
+                  <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center text-[14px]">
+                    <span>Signal ID:</span>
+                    <Controller
+                      name="eve_id"
+                      control={signatureForm.control}
+                      rules={{
+                        required: true,
+                        pattern: /^[A-Z]{3}-\d{3}$/,
+                      }}
+                      render={({ field, fieldState }) => (
+                        <InputText
+                          placeholder="XXX-123"
+                          value={field.value ?? ''}
+                          onChange={field.onChange}
+                          className={fieldState.invalid ? 'p-invalid' : ''}
+                        />
+                      )}
+                    />
+                  </label>
+                )}
+
                 <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center text-[14px]">
                   <span>Group:</span>
                   <SignatureGroupSelect name="group" />

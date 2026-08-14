@@ -34,6 +34,7 @@ import { PingType } from '@/hooks/Mapper/types/ping.ts';
 import type { PanelPosition } from '@reactflow/core';
 import { useHotkey } from '../../hooks/useHotkey';
 import { MINI_MAP_PLACEMENT_OFFSETS } from './constants.ts';
+import { SignatureSettings } from '@/hooks/Mapper/components/mapRootContent/components/SignatureSettings';
 
 // TODO: INFO - this component needs for abstract work with Map instance
 export const MapWrapper = () => {
@@ -115,6 +116,7 @@ export const MapWrapper = () => {
   const [openPing, setOpenPing] = useState<{ type: PingType; solar_system_id: string } | null>(null);
   const [openCustomLabel, setOpenCustomLabel] = useState<string | null>(null);
   const [openAddSystem, setOpenAddSystem] = useState<XYPosition | null>(null);
+  const [openAddSignature, setOpenAddSignature] = useState<string | null>(null);
   const [selectedConnection, setSelectedConnection] = useState<SolarSystemConnection | null>(null);
 
   const ref = useRef({
@@ -203,6 +205,10 @@ export const MapWrapper = () => {
           // @ts-ignore
           setOpenSettings(event.data.system_id);
           break;
+        case OutCommand.addSignature:
+          // @ts-ignore
+          setOpenAddSignature(event.data.system_id);
+          break;
         case OutCommand.updateSystemPosition:
           if (viewMode === 'home') {
             const { solar_system_id, position } = event.data as { solar_system_id: string; position: XYPosition };
@@ -282,6 +288,10 @@ export const MapWrapper = () => {
 
   const handleOpenSettings = useCallback(() => {
     ref.current.systemContextProps.systemId && setOpenSettings(ref.current.systemContextProps.systemId);
+  }, []);
+
+  const handleAddSignature = useCallback(() => {
+    ref.current.systemContextProps.systemId && setOpenAddSignature(ref.current.systemContextProps.systemId);
   }, []);
 
   const handleTogglePing = useCallback(
@@ -390,6 +400,15 @@ export const MapWrapper = () => {
         <SystemCustomLabelDialog systemId={openCustomLabel} visible setVisible={() => setOpenCustomLabel(null)} />
       )}
 
+      {openAddSignature != null && (
+        <SignatureSettings
+          systemId={openAddSignature}
+          show
+          onHide={() => setOpenAddSignature(null)}
+          signatureData={undefined}
+        />
+      )}
+
       {linkSignatureToSystem != null && (
         <SystemLinkSignatureDialog data={linkSignatureToSystem} setVisible={() => updateLinkSignatureToSystem(null)} />
       )}
@@ -408,6 +427,7 @@ export const MapWrapper = () => {
         userHubs={userHubs}
         {...systemContextProps}
         onOpenSettings={handleOpenSettings}
+        onAddSignature={handleAddSignature}
         onTogglePing={handleTogglePing}
         onCustomLabelDialog={handleCustomLabelDialog}
       />

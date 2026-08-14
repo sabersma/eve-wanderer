@@ -12,7 +12,7 @@ export const useCenterSystem = () => {
   const ref = useRef({ rf, update });
   ref.current = { rf, update };
 
-  const highlightTimeout = useRef<number>();
+  const highlightTimeout = useRef<ReturnType<typeof setTimeout>>();
 
   return useCallback((systemId: CommandCenterSystem) => {
     const systemNode = ref.current.rf.getNodes().find(x => x.data.id === systemId);
@@ -20,6 +20,9 @@ export const useCenterSystem = () => {
       return;
     }
     ref.current.rf.setCenter(systemNode.position.x, systemNode.position.y, { duration: 1000 });
+
+    // Also select the centered system so it is clearly marked on the canvas.
+    ref.current.rf.setNodes(nds => nds.map(node => ({ ...node, selected: node.id === systemId })));
 
     ref.current.update({ systemHighlighted: systemId });
 

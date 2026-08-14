@@ -8,9 +8,11 @@ import { useSystemSignaturesData } from './hooks/useSystemSignaturesData';
 import { SystemSignaturesHeader } from './SystemSignatureHeader';
 import { SystemSignaturesContent } from './SystemSignaturesContent';
 import { SystemSignatureSettingsDialog } from './SystemSignatureSettingsDialog';
+import { SignatureSettings } from '@/hooks/Mapper/components/mapRootContent/components/SignatureSettings';
 
 export const SystemSignatures = () => {
   const [showSettings, setShowSettings] = useState(false);
+  const [showAddSignature, setShowAddSignature] = useState(false);
 
   const {
     data: { selectedSystems },
@@ -79,6 +81,7 @@ export const SystemSignatures = () => {
           onLazyDeleteChange={handleLazyDeleteToggle}
           onUndoClick={handleUndo}
           onSettingsClick={openSettings}
+          onAddSignature={() => setShowAddSignature(true)}
         />
       }
       windowId={SIGNATURE_WINDOW_ID}
@@ -106,6 +109,15 @@ export const SystemSignatures = () => {
           settings={settingsSignatures}
           onCancel={() => setShowSettings(false)}
           onSave={handleSettingsSave}
+        />
+      )}
+
+      {showAddSignature && isSystemSelected && (
+        <SignatureSettings
+          systemId={systemId}
+          show
+          onHide={() => setShowAddSignature(false)}
+          signatureData={undefined}
         />
       )}
     </Widget>

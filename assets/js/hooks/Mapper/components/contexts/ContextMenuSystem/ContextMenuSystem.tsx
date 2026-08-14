@@ -22,6 +22,7 @@ export interface ContextMenuSystemProps {
   onTogglePing(type: PingType, solar_system_id: string, ping_id: string | undefined, hasPing: boolean): void;
   onWaypointSet: WaypointSetContextHandler;
   onRearrange(): void;
+  onAddSignature(): void;
 }
 
 export const ContextMenuSystem: React.FC<ContextMenuSystemProps> = ({ contextMenuRef, ...props }) => {

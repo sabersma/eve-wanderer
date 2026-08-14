@@ -222,6 +222,21 @@ export const useContextMenuSystemHandlers = ({
     setSystem(undefined);
   }, []);
 
+  const onAddSignature = useCallback(() => {
+    const { system, outCommand } = ref.current;
+    if (!system) {
+      return;
+    }
+
+    outCommand({
+      type: OutCommand.addSignature,
+      data: {
+        system_id: system,
+      },
+    });
+    setSystem(undefined);
+  }, []);
+
   return {
     open,
 
@@ -238,6 +253,7 @@ export const useContextMenuSystemHandlers = ({
     onOpenSettings,
     onWaypointSet,
     onRearrange,
+    onAddSignature,
     systemId: system,
   };
 };

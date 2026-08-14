@@ -304,6 +304,7 @@ export enum OutCommand {
   searchSystems = 'search_systems',
   undoDeleteSignatures = 'undo_delete_signatures',
   rearrangeSystems = 'rearrange_systems',
+  addSignature = 'add_signature',
 }
 
 export type OutCommandHandler = <T = unknown>(event: { type: OutCommand; data: unknown }) => Promise<T>;

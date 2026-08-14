@@ -36,6 +36,7 @@ export const useContextMenuSystemItems = ({
   onOpenSettings,
   onWaypointSet,
   onRearrange,
+  onAddSignature,
   systemId,
   hubs,
   userHubs,
@@ -96,6 +97,11 @@ export const useContextMenuSystemItems = ({
       { separator: true },
       getTags(),
       getStatus(),
+      {
+        label: 'Add Signature',
+        icon: PrimeIcons.PLUS,
+        command: onAddSignature,
+      },
       ...getLabels(),
       ...getWaypointMenu(systemId, systemStaticInfo.system_class),
       ...(system.status === STATUSES.home
@@ -212,5 +218,6 @@ export const useContextMenuSystemItems = ({
     ping,
     isShowPingBtn,
     onRearrange,
+    onAddSignature,
   ]);
 };

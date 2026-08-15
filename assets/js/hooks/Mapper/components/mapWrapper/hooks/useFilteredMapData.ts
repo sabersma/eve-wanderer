@@ -141,6 +141,34 @@ export function useFilteredMapData(
       c => visibleSystemIds.has(c.source) && visibleSystemIds.has(c.target),
     );
 
+    // DEBUG(home-filter): report connections dropped by BFS to diagnose the
+    // "new path shows in ALL but not HOME" issue.
+    const droppedConnections = connections.filter(
+      c => !visibleSystemIds.has(c.source) || !visibleSystemIds.has(c.target),
+    );
+    if (droppedConnections.length > 0) {
+      console.warn('[useFilteredMapData] home BFS dropped connections', {
+        selectedHomeSystemId,
+        homeExists,
+        systems: systems.length,
+        connections: connections.length,
+        reachable: reachableIds.size,
+        visible: visibleSystemIds.size,
+        homeConnected: connections.some(
+          c => c.source === selectedHomeSystemId || c.target === selectedHomeSystemId,
+        ),
+        dropped: droppedConnections.map(c => ({
+          id: c.id,
+          source: c.source,
+          target: c.target,
+          sourceInSystems: systems.some(s => s.id === c.source),
+          targetInSystems: systems.some(s => s.id === c.target),
+          sourceReachable: visibleSystemIds.has(c.source),
+          targetReachable: visibleSystemIds.has(c.target),
+        })),
+      });
+    }
+
     return {
       systems: filteredSystems,
       connections: filteredConnections,

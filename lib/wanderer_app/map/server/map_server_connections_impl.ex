@@ -694,6 +694,10 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
 
         Impl.broadcast!(map_id, :add_connection, connection)
 
+        Logger.info(
+          "[maybe_add_connection] map_id=#{map_id} new_connection #{old_location.solar_system_id} -> #{location.solar_system_id} (id=#{connection.id})"
+        )
+
         Impl.broadcast!(map_id, :maybe_link_signature, %{
           character_id: character_id,
           solar_system_source: old_location.solar_system_id,

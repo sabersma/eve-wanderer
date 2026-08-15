@@ -553,6 +553,8 @@ defmodule WandererAppWeb.MapCoreEventHandler do
            }
          } = socket
        ) do
+    Logger.info("[handle_map_server_started] map_id=#{map_id}")
+
     with {:ok, _} <- current_user |> WandererApp.Api.User.update_last_map(%{last_map_id: map_id}),
          {:ok, characters_limit} <- map_id |> WandererApp.Map.get_characters_limit(),
          {:ok, map_character_ids} <-
@@ -678,6 +680,8 @@ defmodule WandererAppWeb.MapCoreEventHandler do
          } = _started_data,
          user_permissions
        ) do
+    Logger.info("[map_start] map_id=#{map_id}")
+
     socket =
       socket
       |> MapCharactersEventHandler.handle_tracking_events(map_id, events)
@@ -697,6 +701,10 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     map_data =
       map_id
       |> get_map_data(current_user.id, is_subscription_active)
+
+    Logger.info(
+      "[map_start] map_id=#{map_id} connections=#{length(Map.get(map_data, :connections, []))} systems=#{length(Map.get(map_data, :systems, []))}"
+    )
 
     socket =
       socket

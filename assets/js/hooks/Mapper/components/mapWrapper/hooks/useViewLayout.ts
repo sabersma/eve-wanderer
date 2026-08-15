@@ -82,12 +82,26 @@ export function useViewLayout(
     const prevConnections = prevConnectionsRef.current;
     prevConnectionsRef.current = filteredConnections;
 
+    // Systems that had a connection in the previous render. Only endpoints that
+    // were NOT connected before (i.e. previously isolated) should be re-anchored;
+    // the already-connected endpoint of a new connection must keep its position
+    // so a brand-new system (see missingIds below) can anchor to it.
+    const prevConnectedIds = new Set<string>();
+    prevConnections?.forEach(c => {
+      prevConnectedIds.add(c.source);
+      prevConnectedIds.add(c.target);
+    });
+
     const relayoutSet = new Set<string>();
     if (prevConnections !== null) {
       const newConnections = filteredConnections.filter(c => !prevConnections.some(p => p.id === c.id));
       for (const c of newConnections) {
         for (const endpoint of [c.source, c.target]) {
-          if (endpoint !== selectedHomeSystemId && stored[endpoint] !== undefined) {
+          if (
+            endpoint !== selectedHomeSystemId &&
+            !prevConnectedIds.has(endpoint) &&
+            stored[endpoint] !== undefined
+          ) {
             relayoutSet.add(endpoint);
           }
         }
@@ -101,11 +115,18 @@ export function useViewLayout(
     deletedIds.forEach(id => {
       delete merged[id];
     });
-    relayoutIds.forEach(id => {
-      delete merged[id];
-    });
+
+    // Position NEW systems first so they can anchor to their existing neighbors
+    // (still present in `merged`). If relayoutIds were deleted first, a new
+    // system whose only laid-out neighbor is being re-anchored would fall back
+    // to its global data coordinate (off-screen in the home tree layout).
     missingIds.forEach(id => {
       merged[id] = computeNewNodePosition(id, merged, filteredSystems, filteredConnections, effectiveLockedIds);
+    });
+
+    // Then re-anchor the previously-isolated systems that just gained a connection.
+    relayoutIds.forEach(id => {
+      delete merged[id];
     });
     relayoutIds.forEach(id => {
       merged[id] = computeNewNodePosition(id, merged, filteredSystems, filteredConnections, effectiveLockedIds);

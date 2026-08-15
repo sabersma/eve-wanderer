@@ -65,6 +65,7 @@ export const useMapInit = () => {
 
       if (connections) {
         updateData.connections = connections;
+        console.log('[useMapInit] init connections=', connections.length, 'systems=', systems?.length);
       }
 
       if (user_permissions) {

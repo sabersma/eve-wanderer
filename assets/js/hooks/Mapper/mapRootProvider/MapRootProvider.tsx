@@ -255,6 +255,17 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
     }
   }, [isReady, viewModeSettings, update]);
 
+  // Enforce role-based view mode: admin/manager keep the global (all) view and
+  // can switch to their subscription view; member/viewer are forced into the
+  // subscription view (no global view, even if localStorage still says "all").
+  const isGlobalAllowed = !!(ref.userPermissions.admin_map || ref.userPermissions.manage_map);
+  const permissionsLoaded = Object.keys(ref.userPermissions).length > 0;
+  useEffect(() => {
+    if (permissionsLoaded && !isGlobalAllowed && ref.viewMode === 'all') {
+      update({ viewMode: 'home' });
+    }
+  }, [permissionsLoaded, isGlobalAllowed, ref.viewMode, update]);
+
   // Sync MapRootData viewMode changes -> persisted settings
   const prevViewModeRef = useRef<ViewMode>(ref.viewMode);
   useEffect(() => {

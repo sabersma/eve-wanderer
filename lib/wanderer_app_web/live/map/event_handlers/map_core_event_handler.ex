@@ -269,6 +269,15 @@ defmodule WandererAppWeb.MapCoreEventHandler do
         {:reply, %{error: "subscription_limit_exceeded", limit: limit}, socket}
 
       true ->
+        # Auto-add any subscribed system that is not yet on the map, so the
+        # subscription view actually shows it.
+        maybe_add_subscribed_systems(
+          map_id,
+          system_ids,
+          current_user_id,
+          Map.get(socket.assigns, :main_character_id)
+        )
+
         case WandererApp.MapUserSettingsRepo.update_subscribed_systems(
                map_id,
                current_user_id,
@@ -432,6 +441,25 @@ defmodule WandererAppWeb.MapCoreEventHandler do
   defp subscription_limit(%{manage_map: true}), do: nil
   defp subscription_limit(%{add_system: true}), do: 3
   defp subscription_limit(_), do: 1
+
+  defp maybe_add_subscribed_systems(_map_id, [], _user_id, _character_id), do: :ok
+
+  defp maybe_add_subscribed_systems(map_id, [system_id | rest], user_id, character_id) do
+    case Integer.parse(system_id) do
+      {solar_system_id, ""} ->
+        WandererApp.Map.Server.add_system(
+          map_id,
+          %{solar_system_id: solar_system_id},
+          user_id,
+          character_id
+        )
+
+      _ ->
+        :ok
+    end
+
+    maybe_add_subscribed_systems(map_id, rest, user_id, character_id)
+  end
 
   defp init_map(
          %{assigns: %{current_user: current_user, map_slug: map_slug}} = socket,

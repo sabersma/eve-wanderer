@@ -72,6 +72,13 @@ export const useMapInit = () => {
 
       if (user_permissions) {
         updateData.userPermissions = user_permissions;
+
+        // Non-admin/manager users are forced into the subscription view. Do it
+        // here (same update as systems) to avoid a one-frame flash of the full
+        // global view before the role-based clamp effect runs.
+        if (!user_permissions.admin_map && !user_permissions.manage_map) {
+          updateData.viewMode = 'home';
+        }
       }
 
       if (hubs) {

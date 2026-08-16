@@ -75,6 +75,13 @@ export function useFilteredMapData(
       };
     }
 
+    // Before the first subscription, render nothing (no systems, no paths) —
+    // even if the user's own character is somewhere on the map. Only after
+    // subscribing do "my character's current system" seeds kick in.
+    if (subscribedSystemIds.length === 0) {
+      return { systems: [], connections: [], visibleSystemIds: new Set() };
+    }
+
     // Subscribed systems + my characters' current systems, restricted to those
     // that actually exist on the map.
     const seeds = [...new Set([...subscribedSystemIds, ...myCharSystemIds])].filter(id =>

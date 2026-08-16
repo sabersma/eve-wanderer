@@ -51,8 +51,10 @@ export const MapWrapper = () => {
       linkSignatureToSystem,
       systemSignatures,
       viewMode,
-      selectedHomeSystemId,
+      subscribedSystemIds,
       connections,
+      characters,
+      userCharacters,
     },
     storedSettings: { interfaceSettings, settingsLocal, mapSettings, mapSettingsUpdate },
   } = useMapRootState();
@@ -72,21 +74,33 @@ export const MapWrapper = () => {
   const { mapRef, runCommand } = useCommonMapEventProcessor();
   const { getNodes } = useReactFlow();
 
+  // Systems where the user's own characters are currently located (always kept
+  // visible as extra BFS seeds, so a character outside the subscribed cluster
+  // still shows up together with the connected systems it passed through).
+  const myCharSystemIds = useMemo(
+    () =>
+      characters
+        .filter(c => userCharacters.includes(c.eve_id))
+        .map(c => c.location?.solar_system_id)
+        .filter((id): id is number => id != null)
+        .map(id => id.toString()),
+    [characters, userCharacters],
+  );
+
   // Compute visible systems/connections based on current view mode
   const {
     visibleSystemIds,
-    effectiveLockedIds,
     systems: filteredSystems,
     connections: filteredConnections,
-  } = useFilteredMapData(systems, connections, viewMode, selectedHomeSystemId);
+  } = useFilteredMapData(systems, connections, viewMode, subscribedSystemIds, myCharSystemIds);
 
   // Per-view local layout (null in 'all' view → use shared global coordinates)
   const { layoutPositions, savePosition, rearrangeLayout } = useViewLayout(
     viewMode,
-    selectedHomeSystemId,
+    subscribedSystemIds,
+    myCharSystemIds,
     filteredSystems,
     filteredConnections,
-    effectiveLockedIds,
   );
 
   // In a home view, "re-arrange layout" should be local-only (recompute the

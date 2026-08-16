@@ -52,7 +52,7 @@ export const useContextMenuSystemItems = ({
   const getUserRoutes = useUserRoute({ userHubs, systemId, onUserHubToggle });
 
   const {
-    data: { pings, isSubscriptionActive },
+    data: { pings, isSubscriptionActive, subscribedSystemIds },
   } = useMapRootState();
 
   const ping = useMemo(() => (pings.length === 1 ? pings[0] : undefined), [pings]);
@@ -104,7 +104,7 @@ export const useContextMenuSystemItems = ({
       },
       ...getLabels(),
       ...getWaypointMenu(systemId, systemStaticInfo.system_class),
-      ...(system.status === STATUSES.home
+      ...(system.status === STATUSES.home || subscribedSystemIds.includes(systemId)
         ? [
             {
               label: 'Re-arrange layout',

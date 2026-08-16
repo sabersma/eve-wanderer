@@ -326,14 +326,12 @@ defmodule WandererApp.Api.MapSystem do
     end
 
     # unknown: 0
-    # friendly: 1
-    # warning: 2
-    # targetPrimary: 3
-    # targetSecondary: 4
-    # dangerousPrimary: 5
-    # dangerousSecondary: 6
-    # lookingFor: 7
-    # home: 8
+    # home: 1
+    # friendly: 2
+    # lookingFor: 3
+    # warning: 4
+    # target: 5
+    # dangerous: 6
     attribute :status, :integer do
       default 0
 

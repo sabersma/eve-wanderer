@@ -93,3 +93,89 @@
 .DropdownPanel {
   font-size: 0.75rem;
 }
+
+.SubscriptionInputRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.SubscriptionInput {
+  width: 190px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ddd;
+
+  &:disabled {
+    opacity: 0.5;
+  }
+}
+
+.SubscriptionLimit {
+  font-size: 0.7rem;
+  color: #aaa;
+  white-space: nowrap;
+}
+
+.SubscriptionResults {
+  position: absolute;
+  z-index: 1000;
+  margin: 2px 0 0;
+  padding: 2px 0;
+  list-style: none;
+  min-width: 190px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #1e1e1e;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 4px;
+}
+
+.SubscriptionResult {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  color: #ccc;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(100, 150, 255, 0.2);
+    color: #fff;
+  }
+}
+
+.SubscriptionChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.SubscriptionChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 10px;
+  background: rgba(100, 150, 255, 0.15);
+  color: #eee;
+  white-space: nowrap;
+}
+
+.SubscriptionChipRemove {
+  border: none;
+  background: transparent;
+  color: #bbb;
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0 2px;
+
+  &:hover {
+    color: #fff;
+  }
+}

@@ -166,6 +166,90 @@ export function computeBfsLayout(
 }
 
 /**
+ * Lay out multiple subscribed "roots" in one view. Each root's connected
+ * subtree is laid out with {@link computeBfsLayout} (single-root) and the
+ * subtrees are placed side-by-side horizontally so they never overlap.
+ */
+export function computeMultiBfsLayout(
+  homeIds: string[],
+  systems: SolarSystemRawType[],
+  connections: SolarSystemConnection[],
+  currentLayout?: LayoutPositions,
+): LayoutPositions {
+  const sysMap = new Map(systems.map(s => [s.id, s]));
+  const roots = homeIds.filter(id => sysMap.has(id));
+  if (roots.length === 0) return {};
+
+  // Build undirected adjacency list + multi-source BFS to assign each system
+  // to the root that reaches it first.
+  const adj = new Map<string, string[]>();
+  const addEdge = (a: string, b: string) => {
+    if (!adj.has(a)) adj.set(a, []);
+    adj.get(a)!.push(b);
+  };
+  for (const c of connections) {
+    addEdge(c.source, c.target);
+    addEdge(c.target, c.source);
+  }
+
+  const rootOf = new Map<string, string>();
+  const visited = new Set<string>();
+  const queue: string[] = [];
+  for (const r of roots) {
+    rootOf.set(r, r);
+    visited.add(r);
+    queue.push(r);
+  }
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    for (const nb of adj.get(cur) ?? []) {
+      if (visited.has(nb)) continue;
+      visited.add(nb);
+      rootOf.set(nb, rootOf.get(cur)!);
+      queue.push(nb);
+    }
+  }
+
+  const positions: LayoutPositions = {};
+  let xCursor = 0;
+
+  roots.forEach(rootId => {
+    const subtreeIds = new Set(systems.filter(s => rootOf.get(s.id) === rootId).map(s => s.id));
+    const subtreeSystems = systems.filter(s => subtreeIds.has(s.id));
+    const subtreeConns = connections.filter(c => subtreeIds.has(c.source) && subtreeIds.has(c.target));
+
+    const tree = computeBfsLayout(rootId, subtreeSystems, subtreeConns, [], currentLayout);
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    for (const sid of Object.keys(tree)) {
+      minX = Math.min(minX, tree[sid].x);
+      maxX = Math.max(maxX, tree[sid].x);
+    }
+    const width = maxX === -Infinity ? 0 : maxX - minX;
+
+    for (const sid of Object.keys(tree)) {
+      positions[sid] = { x: tree[sid].x - minX + xCursor, y: tree[sid].y };
+    }
+    xCursor += width + MARGIN_X * 4;
+  });
+
+  // Isolated systems (no connections) keep their current/data position.
+  const connectedIds = new Set<string>();
+  for (const c of connections) {
+    connectedIds.add(c.source);
+    connectedIds.add(c.target);
+  }
+  for (const s of systems) {
+    if (positions[s.id]) continue;
+    if (connectedIds.has(s.id)) continue;
+    positions[s.id] = currentLayout?.[s.id] ?? { x: s.position.x, y: s.position.y };
+  }
+
+  return positions;
+}
+
+/**
  * Lay out the branches on one side (left or right) of home. Each branch gets
  * its own vertical region (branch isolation), so multiple branches do not
  * overlap. Mirrors the backend rearrange_systems branch-isolation logic.
@@ -257,14 +341,9 @@ export function computeNewNodePosition(
   stored: LayoutPositions,
   systems: SolarSystemRawType[],
   connections: SolarSystemConnection[],
-  effectiveLockedIds: string[],
 ): LayoutPosition {
   const sysMap = new Map(systems.map(s => [s.id, s]));
   const sys = sysMap.get(newId);
-
-  if (sys && effectiveLockedIds.includes(newId)) {
-    return { x: sys.position.x, y: sys.position.y };
-  }
 
   const neighborIds = connections
     .filter(c => c.source === newId || c.target === newId)

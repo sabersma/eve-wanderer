@@ -2,40 +2,55 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import useLocalStorageState from 'use-local-storage-state';
 import { SolarSystemConnection, SolarSystemRawType } from '@/hooks/Mapper/types';
 import { ViewMode } from '@/hooks/Mapper/mapRootProvider';
-import { computeBfsLayout, computeNewNodePosition, LayoutPositions } from '@/hooks/Mapper/components/map/helpers/layout';
+import {
+  computeMultiBfsLayout,
+  computeNewNodePosition,
+  LayoutPositions,
+} from '@/hooks/Mapper/components/map/helpers/layout';
 
 const LS_KEY = 'wanderer_view_layouts_v1';
 
 type ViewLayouts = Record<string, LayoutPositions>;
 
 /**
- * Manages per-view local layouts (方案1 + 方案3), with incremental updates.
+ * Manages per-view local layouts.
  *
  * - 'all' view: uses shared global data coordinates.
- * - 'home:{id}' view: uses a cached per-view layout. The cache is written once
- *   on first entry (full BFS), then only updated incrementally:
+ * - subscription view: uses a cached per-subscription layout. The cache is
+ *   written once on first entry (multi-root BFS), then updated incrementally:
  *     * newly-added systems get a position on top of the existing layout
  *     * deleted systems are removed from the cache
  *   Existing systems are never re-laid-out (so remote data-coordinate changes
  *   from other users do not cause flicker).
  *
- * Cross-tab sync is disabled so each browser tab keeps its own layout.
+ * Locked systems have no special meaning in the subscription view.
  */
 export function useViewLayout(
   viewMode: ViewMode,
-  selectedHomeSystemId: string | null,
+  subscribedSystemIds: string[],
+  myCharSystemIds: string[],
   filteredSystems: SolarSystemRawType[],
   filteredConnections: SolarSystemConnection[],
-  effectiveLockedIds: string[],
 ) {
   const [viewLayouts, setViewLayouts] = useLocalStorageState<ViewLayouts>(LS_KEY, {
     defaultValue: {},
     storageSync: false,
   });
 
-  const layoutKey = viewMode === 'home' && selectedHomeSystemId ? `home:${selectedHomeSystemId}` : null;
+  const seeds = useMemo(
+    () => [...new Set([...subscribedSystemIds, ...myCharSystemIds])],
+    [subscribedSystemIds, myCharSystemIds],
+  );
 
-  // Render layout: cache-first, fall back to a fresh BFS when not cached yet.
+  const layoutKey = useMemo(
+    () =>
+      viewMode === 'home' && subscribedSystemIds.length > 0
+        ? `subscribed:${[...subscribedSystemIds].sort().join(',')}`
+        : null,
+    [viewMode, subscribedSystemIds],
+  );
+
+  // Render layout: cache-first, fall back to a fresh multi-root BFS when not cached yet.
   const layoutPositions = useMemo<LayoutPositions | null>(() => {
     if (viewMode === 'all') {
       return filteredSystems.reduce<LayoutPositions>((acc, s) => {
@@ -44,13 +59,13 @@ export function useViewLayout(
       }, {});
     }
 
-    if (!layoutKey || !selectedHomeSystemId) return null;
+    if (!layoutKey) return null;
 
     const stored = viewLayouts[layoutKey];
     if (stored && Object.keys(stored).length > 0) return stored;
 
-    return computeBfsLayout(selectedHomeSystemId, filteredSystems, filteredConnections, effectiveLockedIds);
-  }, [viewMode, layoutKey, selectedHomeSystemId, filteredSystems, filteredConnections, effectiveLockedIds, viewLayouts]);
+    return computeMultiBfsLayout(seeds, filteredSystems, filteredConnections);
+  }, [viewMode, layoutKey, seeds, filteredSystems, filteredConnections, viewLayouts]);
 
   // Tracks the previous connections to detect newly-added connections (used to
   // re-anchor systems that were isolated before gaining a connection).
@@ -58,14 +73,14 @@ export function useViewLayout(
 
   // Persist/incrementally maintain the cache.
   useEffect(() => {
-    if (viewMode !== 'home' || !selectedHomeSystemId || !layoutKey) return;
+    if (viewMode !== 'home' || !layoutKey) return;
 
     const visibleIds = new Set(filteredSystems.map(s => s.id));
     const stored = viewLayouts[layoutKey];
 
-    // First entry: persist a full BFS layout.
+    // First entry: persist a full multi-root BFS layout.
     if (!stored || Object.keys(stored).length === 0) {
-      const layout = computeBfsLayout(selectedHomeSystemId, filteredSystems, filteredConnections, effectiveLockedIds);
+      const layout = computeMultiBfsLayout(seeds, filteredSystems, filteredConnections);
       setViewLayouts(prev => ({ ...prev, [layoutKey]: layout }));
       return;
     }
@@ -75,17 +90,10 @@ export function useViewLayout(
     const missingIds = filteredSystems.filter(s => !stored[s.id]).map(s => s.id);
     const deletedIds = Object.keys(stored).filter(id => !visibleIds.has(id));
 
-    // Detect systems that just gained a connection by comparing against the
-    // previous connections. This avoids re-laying systems whose global data
-    // coordinate happens to equal a BFS layout coordinate (e.g. after a global
-    // rearrange), which would otherwise cause layout churn on any data update.
     const prevConnections = prevConnectionsRef.current;
     prevConnectionsRef.current = filteredConnections;
 
-    // Systems that had a connection in the previous render. Only endpoints that
-    // were NOT connected before (i.e. previously isolated) should be re-anchored;
-    // the already-connected endpoint of a new connection must keep its position
-    // so a brand-new system (see missingIds below) can anchor to it.
+    const seedSet = new Set(seeds);
     const prevConnectedIds = new Set<string>();
     prevConnections?.forEach(c => {
       prevConnectedIds.add(c.source);
@@ -97,11 +105,7 @@ export function useViewLayout(
       const newConnections = filteredConnections.filter(c => !prevConnections.some(p => p.id === c.id));
       for (const c of newConnections) {
         for (const endpoint of [c.source, c.target]) {
-          if (
-            endpoint !== selectedHomeSystemId &&
-            !prevConnectedIds.has(endpoint) &&
-            stored[endpoint] !== undefined
-          ) {
+          if (!seedSet.has(endpoint) && !prevConnectedIds.has(endpoint) && stored[endpoint] !== undefined) {
             relayoutSet.add(endpoint);
           }
         }
@@ -116,24 +120,19 @@ export function useViewLayout(
       delete merged[id];
     });
 
-    // Position NEW systems first so they can anchor to their existing neighbors
-    // (still present in `merged`). If relayoutIds were deleted first, a new
-    // system whose only laid-out neighbor is being re-anchored would fall back
-    // to its global data coordinate (off-screen in the home tree layout).
     missingIds.forEach(id => {
-      merged[id] = computeNewNodePosition(id, merged, filteredSystems, filteredConnections, effectiveLockedIds);
+      merged[id] = computeNewNodePosition(id, merged, filteredSystems, filteredConnections);
     });
 
-    // Then re-anchor the previously-isolated systems that just gained a connection.
     relayoutIds.forEach(id => {
       delete merged[id];
     });
     relayoutIds.forEach(id => {
-      merged[id] = computeNewNodePosition(id, merged, filteredSystems, filteredConnections, effectiveLockedIds);
+      merged[id] = computeNewNodePosition(id, merged, filteredSystems, filteredConnections);
     });
 
     setViewLayouts(prev => ({ ...prev, [layoutKey]: merged }));
-  }, [viewMode, selectedHomeSystemId, layoutKey, filteredSystems, filteredConnections, effectiveLockedIds, viewLayouts, setViewLayouts]);
+  }, [viewMode, layoutKey, seeds, filteredSystems, filteredConnections, viewLayouts, setViewLayouts]);
 
   const savePosition = useCallback(
     (systemId: string, pos: { x: number; y: number }) => {
@@ -150,20 +149,15 @@ export function useViewLayout(
     [layoutKey, layoutPositions, setViewLayouts],
   );
 
-  // Recompute a full BFS layout for the current home and persist it locally.
-  // Used to make "re-arrange layout" a local-only action in a home view.
+  // Recompute a full multi-root BFS layout for the current subscription and
+  // persist it locally. "Re-arrange layout" is a local-only action in a
+  // subscription view.
   const rearrangeLayout = useCallback(() => {
-    if (!layoutKey || !selectedHomeSystemId) return;
+    if (!layoutKey) return;
 
-    const layout = computeBfsLayout(
-      selectedHomeSystemId,
-      filteredSystems,
-      filteredConnections,
-      effectiveLockedIds,
-      layoutPositions ?? undefined,
-    );
+    const layout = computeMultiBfsLayout(seeds, filteredSystems, filteredConnections, layoutPositions ?? undefined);
     setViewLayouts(prev => ({ ...prev, [layoutKey]: layout }));
-  }, [layoutKey, selectedHomeSystemId, filteredSystems, filteredConnections, effectiveLockedIds, layoutPositions, setViewLayouts]);
+  }, [layoutKey, seeds, filteredSystems, filteredConnections, layoutPositions, setViewLayouts]);
 
   return { layoutPositions, savePosition, rearrangeLayout };
 }

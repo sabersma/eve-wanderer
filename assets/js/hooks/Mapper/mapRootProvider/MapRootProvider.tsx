@@ -62,7 +62,8 @@ export type MapRootData = MapUnionTypes & {
   map_slug: string | null;
   expiredCharacters: string[];
   viewMode: ViewMode;
-  selectedHomeSystemId: string | null;
+  subscribedSystemIds: string[];
+  subscriptionLimit: number | null;
 };
 
 const INITIAL_DATA: MapRootData = {
@@ -111,7 +112,8 @@ const INITIAL_DATA: MapRootData = {
   map_slug: null,
   expiredCharacters: [],
   viewMode: 'all',
-  selectedHomeSystemId: null,
+  subscribedSystemIds: [],
+  subscriptionLimit: null,
 };
 
 export enum InterfaceStoredSettingsProps {
@@ -248,26 +250,19 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
     if (isReady && !viewModeInitialized.current) {
       viewModeInitialized.current = true;
       if (viewModeSettings.viewMode && viewModeSettings.viewMode !== 'all') {
-        update({
-          viewMode: viewModeSettings.viewMode,
-          selectedHomeSystemId: viewModeSettings.selectedHomeSystemId ?? null,
-        });
+        update({ viewMode: viewModeSettings.viewMode });
       }
     }
   }, [isReady, viewModeSettings, update]);
 
   // Sync MapRootData viewMode changes -> persisted settings
-  const prevViewModeRef = useRef({ viewMode: ref.viewMode, selectedHomeSystemId: ref.selectedHomeSystemId });
+  const prevViewModeRef = useRef<ViewMode>(ref.viewMode);
   useEffect(() => {
-    const prev = prevViewModeRef.current;
-    if (ref.viewMode !== prev.viewMode || ref.selectedHomeSystemId !== prev.selectedHomeSystemId) {
-      prevViewModeRef.current = { viewMode: ref.viewMode, selectedHomeSystemId: ref.selectedHomeSystemId };
-      updateViewModeSettings({
-        viewMode: ref.viewMode,
-        selectedHomeSystemId: ref.selectedHomeSystemId,
-      });
+    if (ref.viewMode !== prevViewModeRef.current) {
+      prevViewModeRef.current = ref.viewMode;
+      updateViewModeSettings({ viewMode: ref.viewMode });
     }
-  }, [ref.viewMode, ref.selectedHomeSystemId, updateViewModeSettings]);
+  }, [ref.viewMode, updateViewModeSettings]);
 
   // When switching back from a home view to the "all" view, re-fetch the full
   // map (ui_loaded → init) so systems/connections generated while the tab was

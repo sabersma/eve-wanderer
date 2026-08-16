@@ -6,12 +6,10 @@ const LS_KEY = 'wanderer_view_mode_v1';
 
 export interface ViewModeSettings {
   viewMode: ViewMode;
-  selectedHomeSystemId: string | null;
 }
 
 const DEFAULT_SETTINGS: ViewModeSettings = {
   viewMode: 'all',
-  selectedHomeSystemId: null,
 };
 
 /**

@@ -37,6 +37,14 @@ export const useMapUpdated = () => {
       out.mainCharacterEveId = props.main_character_eve_id;
     }
 
+    if ('subscribed_system_ids' in props) {
+      out.subscribedSystemIds = props.subscribed_system_ids;
+    }
+
+    if ('subscription_limit' in props) {
+      out.subscriptionLimit = props.subscription_limit;
+    }
+
     update(out);
   }, []);
 };

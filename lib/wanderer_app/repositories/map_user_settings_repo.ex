@@ -75,6 +75,33 @@ defmodule WandererApp.MapUserSettingsRepo do
     end
   end
 
+  def get_subscribed_systems(map_id, user_id) do
+    case get(map_id, user_id) do
+      {:ok, user_settings} when not is_nil(user_settings) ->
+        {:ok, Map.get(user_settings, :subscribed_system_ids, [])}
+
+      _ ->
+        {:ok, []}
+    end
+  end
+
+  def update_subscribed_systems(map_id, user_id, system_ids) do
+    get!(map_id, user_id)
+    |> case do
+      user_settings when not is_nil(user_settings) ->
+        user_settings
+        |> WandererApp.Api.MapUserSettings.update_subscriptions(%{subscribed_system_ids: system_ids})
+
+      _ ->
+        WandererApp.Api.MapUserSettings.create!(%{
+          map_id: map_id,
+          user_id: user_id,
+          settings: @default_form_data |> Jason.encode!()
+        })
+        |> WandererApp.Api.MapUserSettings.update_subscriptions(%{subscribed_system_ids: system_ids})
+    end
+  end
+
   def to_form_data(nil), do: {:ok, @default_form_data}
   def to_form_data(%{settings: settings} = _user_settings), do: {:ok, Jason.decode!(settings)}
 

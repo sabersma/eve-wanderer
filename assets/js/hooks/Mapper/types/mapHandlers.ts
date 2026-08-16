@@ -109,6 +109,8 @@ export type CommandInit = {
   following_character_eve_id?: string | null;
   map_slug?: string;
   expired_characters: string[];
+  subscribed_system_ids?: string[];
+  subscription_limit?: number | null;
 };
 
 export type CommandAddSystems = SolarSystemRawType[];
@@ -307,6 +309,7 @@ export enum OutCommand {
   getDefaultSettings = 'get_default_settings',
   unlinkSignature = 'unlink_signature',
   searchSystems = 'search_systems',
+  updateSubscriptions = 'update_subscriptions',
   undoDeleteSignatures = 'undo_delete_signatures',
   rearrangeSystems = 'rearrange_systems',
   addSignature = 'add_signature',

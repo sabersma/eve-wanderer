@@ -247,6 +247,46 @@ defmodule WandererAppWeb.MapCoreEventHandler do
   end
 
   def handle_ui_event(
+        "update_subscriptions",
+        %{"system_ids" => system_ids},
+        %{
+          assigns: %{
+            map_id: map_id,
+            current_user: %{id: current_user_id},
+            user_permissions: user_permissions
+          }
+        } = socket
+      ) do
+    system_ids =
+      system_ids
+      |> Enum.map(&to_string/1)
+      |> Enum.uniq()
+
+    limit = subscription_limit(user_permissions)
+
+    cond do
+      not is_nil(limit) and length(system_ids) > limit ->
+        {:reply, %{error: "subscription_limit_exceeded", limit: limit}, socket}
+
+      true ->
+        case WandererApp.MapUserSettingsRepo.update_subscribed_systems(
+               map_id,
+               current_user_id,
+               system_ids
+             ) do
+          {:ok, _} ->
+            payload = %{subscribed_system_ids: system_ids, subscription_limit: limit}
+
+            {:reply, payload,
+             socket |> MapEventHandler.push_map_event("map_updated", payload)}
+
+          error ->
+            {:reply, %{error: "update_failed", detail: inspect(error)}, socket}
+        end
+    end
+  end
+
+  def handle_ui_event(
         "log_map_error",
         %{"componentStack" => component_stack, "error" => error},
         socket
@@ -386,6 +426,12 @@ defmodule WandererAppWeb.MapCoreEventHandler do
       WandererApp.Map.Manager.start_map(map_id)
     end
   end
+
+  # Subscription limits per role: admin/manager unlimited (nil), member 3, viewer 1.
+  defp subscription_limit(%{admin_map: true}), do: nil
+  defp subscription_limit(%{manage_map: true}), do: nil
+  defp subscription_limit(%{add_system: true}), do: 3
+  defp subscription_limit(_), do: 1
 
   defp init_map(
          %{assigns: %{current_user: current_user, map_slug: map_slug}} = socket,
@@ -702,6 +748,11 @@ defmodule WandererAppWeb.MapCoreEventHandler do
       map_id
       |> get_map_data(current_user.id, is_subscription_active)
 
+    {:ok, subscribed_system_ids} =
+      WandererApp.MapUserSettingsRepo.get_subscribed_systems(map_id, current_user.id)
+
+    subscription_limit = subscription_limit(user_permissions)
+
     Logger.info(
       "[map_start] map_id=#{map_id} connections=#{length(Map.get(map_data, :connections, []))} systems=#{length(Map.get(map_data, :systems, []))}"
     )
@@ -728,6 +779,8 @@ defmodule WandererAppWeb.MapCoreEventHandler do
           classes: WandererApp.CachedInfo.get_wormhole_classes!(),
           wormholes: WandererApp.CachedInfo.get_wormhole_types!(),
           effects: WandererApp.CachedInfo.get_effects!(),
+          subscribed_system_ids: subscribed_system_ids,
+          subscription_limit: subscription_limit,
           reset: true
         })
       )

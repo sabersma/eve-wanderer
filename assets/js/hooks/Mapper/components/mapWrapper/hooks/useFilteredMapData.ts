@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { SolarSystemConnection, SolarSystemRawType } from '@/hooks/Mapper/types';
 import { ViewMode } from '@/hooks/Mapper/mapRootProvider';
-import { STATUSES } from '@/hooks/Mapper/components/map/constants';
 
 /**
  * Build an adjacency list from connections for BFS traversal.
@@ -50,130 +49,54 @@ export interface FilteredMapData {
   systems: SolarSystemRawType[];
   connections: SolarSystemConnection[];
   visibleSystemIds: Set<string>;
-  effectiveLockedIds: string[];
 }
 
 /**
  * Hook that filters systems and connections based on the current view mode.
  *
- * Locked semantics (per requirement):
- * - "effective locked" = locked AND status !== home. These systems keep the
- *   lock privileges: always visible + treated as BFS bridges so their own
- *   cluster also renders.
- * - A system that is both home AND locked is treated as a normal node in
- *   other home views (no "always visible" privilege, participates in layout).
- *
- * - 'all' mode: returns all systems and connections unchanged.
- * - 'home' mode: performs BFS from the selected home system and all
- *   effective-locked systems, returning reachable systems plus effective-locked
- *   systems. Connections are filtered to only include visible endpoints.
+ * - 'all' mode (admin/manager global view): returns everything unchanged.
+ * - subscription view: BFS from the user's subscribed systems plus the systems
+ *   where the user's own characters are currently located. Locked systems have
+ *   no special meaning here (lock only applies in the global view).
  */
 export function useFilteredMapData(
   systems: SolarSystemRawType[],
   connections: SolarSystemConnection[],
   viewMode: ViewMode,
-  selectedHomeSystemId: string | null,
+  subscribedSystemIds: string[],
+  myCharSystemIds: string[],
 ): FilteredMapData {
   return useMemo(() => {
-    // Effective-locked = locked AND not home (home has higher priority)
-    const effectiveLockedIds = systems
-      .filter(s => s.locked && s.status !== STATUSES.home)
-      .map(s => s.id);
-
     if (viewMode === 'all') {
       return {
         systems,
         connections,
         visibleSystemIds: new Set(systems.map(s => s.id)),
-        effectiveLockedIds,
       };
     }
 
-    // viewMode === 'home'
-    if (!selectedHomeSystemId) {
-      return {
-        systems,
-        connections,
-        visibleSystemIds: new Set(systems.map(s => s.id)),
-        effectiveLockedIds,
-      };
+    // Subscribed systems + my characters' current systems, restricted to those
+    // that actually exist on the map.
+    const seeds = [...new Set([...subscribedSystemIds, ...myCharSystemIds])].filter(id =>
+      systems.some(s => s.id === id),
+    );
+
+    if (seeds.length === 0) {
+      return { systems: [], connections: [], visibleSystemIds: new Set() };
     }
 
-    // Check if the selected home system exists in the current data
-    const homeExists = systems.some(s => s.id === selectedHomeSystemId);
-    if (!homeExists) {
-      return {
-        systems,
-        connections,
-        visibleSystemIds: new Set(systems.map(s => s.id)),
-        effectiveLockedIds,
-      };
-    }
-
-    // Build adjacency list from all connections
     const adjacency = buildAdjacencyList(connections);
-
-    // BFS from home + effective-locked systems (they bridge their own cluster)
-    const seeds = [...new Set([selectedHomeSystemId, ...effectiveLockedIds])];
-    const reachableIds = bfsReachable(seeds, adjacency);
-
-    // Visible = reachable ∪ effective-locked (locked always visible)
-    const visibleSystemIds = new Set(reachableIds);
-    for (const id of effectiveLockedIds) {
-      visibleSystemIds.add(id);
-    }
-
-    // Also keep isolated systems (no connections) visible, so a manually-added
-    // system can be seen and wired into the home tree right away.
-    const connectedIds = new Set<string>();
-    for (const c of connections) {
-      connectedIds.add(c.source);
-      connectedIds.add(c.target);
-    }
-    for (const s of systems) {
-      if (!connectedIds.has(s.id)) {
-        visibleSystemIds.add(s.id);
-      }
-    }
+    const visibleSystemIds = bfsReachable(seeds, adjacency);
 
     const filteredSystems = systems.filter(s => visibleSystemIds.has(s.id));
     const filteredConnections = connections.filter(
       c => visibleSystemIds.has(c.source) && visibleSystemIds.has(c.target),
     );
 
-    // DEBUG(home-filter): report connections dropped by BFS to diagnose the
-    // "new path shows in ALL but not HOME" issue.
-    const droppedConnections = connections.filter(
-      c => !visibleSystemIds.has(c.source) || !visibleSystemIds.has(c.target),
-    );
-    if (droppedConnections.length > 0) {
-      console.warn('[useFilteredMapData] home BFS dropped connections', {
-        selectedHomeSystemId,
-        homeExists,
-        systems: systems.length,
-        connections: connections.length,
-        reachable: reachableIds.size,
-        visible: visibleSystemIds.size,
-        homeConnected: connections.some(
-          c => c.source === selectedHomeSystemId || c.target === selectedHomeSystemId,
-        ),
-        dropped: droppedConnections.map(c => ({
-          id: c.id,
-          source: c.source,
-          target: c.target,
-          sourceInSystems: systems.some(s => s.id === c.source),
-          targetInSystems: systems.some(s => s.id === c.target),
-          sourceReachable: visibleSystemIds.has(c.source),
-          targetReachable: visibleSystemIds.has(c.target),
-        })),
-      });
-    }
-
     return {
       systems: filteredSystems,
       connections: filteredConnections,
       visibleSystemIds,
-      effectiveLockedIds,
     };
-  }, [systems, connections, viewMode, selectedHomeSystemId]);
+  }, [systems, connections, viewMode, subscribedSystemIds, myCharSystemIds]);
 }

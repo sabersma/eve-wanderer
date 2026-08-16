@@ -30,6 +30,8 @@ export const useMapInit = () => {
         user_hubs,
         map_slug,
         expired_characters,
+        subscribed_system_ids,
+        subscription_limit,
       } = props;
 
       const updateData: Partial<MapRootData> = {};
@@ -112,6 +114,14 @@ export const useMapInit = () => {
 
       if ('expired_characters' in props) {
         updateData.expiredCharacters = expired_characters;
+      }
+
+      if (subscribed_system_ids) {
+        updateData.subscribedSystemIds = subscribed_system_ids;
+      }
+
+      if (subscription_limit !== undefined) {
+        updateData.subscriptionLimit = subscription_limit;
       }
 
       update(updateData);

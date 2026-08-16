@@ -236,7 +236,7 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
 
   const storedSettings = useMapUserSettings(ref, outCommand);
   const { isReady } = storedSettings;
-  const { viewModeSettings, updateViewModeSettings } = useViewModeSettings(ref.map_slug);
+  const { updateViewModeSettings } = useViewModeSettings(ref.map_slug);
 
   const { windowsSettings, toggleWidgetVisibility, updateWidgetSettings, resetWidgets } =
     useStoreWidgets(storedSettings);
@@ -244,22 +244,22 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
   const comments = useComments({ outCommand });
   const charactersCache = useCharactersCache({ outCommand });
 
-  // Sync persisted viewMode settings -> MapRootData on init
-  const viewModeInitialized = useRef(false);
-  useEffect(() => {
-    if (isReady && !viewModeInitialized.current) {
-      viewModeInitialized.current = true;
-      if (viewModeSettings.viewMode && viewModeSettings.viewMode !== 'all') {
-        update({ viewMode: viewModeSettings.viewMode });
-      }
-    }
-  }, [isReady, viewModeSettings, update]);
-
-  // Enforce role-based view mode: admin/manager keep the global (all) view and
-  // can switch to their subscription view; member/viewer are forced into the
-  // subscription view (no global view, even if localStorage still says "all").
+  // Role-based default view mode, applied once permissions are known.
+  // Admin/manager start on the global view; member/viewer on the subscription
+  // view. Persisted localStorage is no longer used for the default (the role
+  // decides it), so an admin re-logging in never lands on an empty "home" view.
   const isGlobalAllowed = !!(ref.userPermissions.admin_map || ref.userPermissions.manage_map);
   const permissionsLoaded = Object.keys(ref.userPermissions).length > 0;
+
+  const viewModeInitialized = useRef(false);
+  useEffect(() => {
+    if (isReady && permissionsLoaded && !viewModeInitialized.current) {
+      viewModeInitialized.current = true;
+      update({ viewMode: isGlobalAllowed ? 'all' : 'home' });
+    }
+  }, [isReady, permissionsLoaded, isGlobalAllowed, update]);
+
+  // Safety net: a member/viewer must never end up in the global view.
   useEffect(() => {
     if (permissionsLoaded && !isGlobalAllowed && ref.viewMode === 'all') {
       update({ viewMode: 'home' });

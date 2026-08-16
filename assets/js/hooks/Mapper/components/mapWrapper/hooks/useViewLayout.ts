@@ -23,12 +23,14 @@ type ViewLayouts = Record<string, LayoutPositions>;
  *   Existing systems are never re-laid-out (so remote data-coordinate changes
  *   from other users do not cause flicker).
  *
- * Locked systems have no special meaning in the subscription view.
+ * Layout roots are the subscribed systems only. Systems where the user's own
+ * character is currently located are NOT roots — they are laid out as children
+ * of whatever they connect to (so a new connection places them next to their
+ * neighbor), or keep their data position if they form a separate cluster.
  */
 export function useViewLayout(
   viewMode: ViewMode,
   subscribedSystemIds: string[],
-  myCharSystemIds: string[],
   filteredSystems: SolarSystemRawType[],
   filteredConnections: SolarSystemConnection[],
 ) {
@@ -36,11 +38,6 @@ export function useViewLayout(
     defaultValue: {},
     storageSync: false,
   });
-
-  const seeds = useMemo(
-    () => [...new Set([...subscribedSystemIds, ...myCharSystemIds])],
-    [subscribedSystemIds, myCharSystemIds],
-  );
 
   const layoutKey = useMemo(
     () =>
@@ -64,8 +61,8 @@ export function useViewLayout(
     const stored = viewLayouts[layoutKey];
     if (stored && Object.keys(stored).length > 0) return stored;
 
-    return computeMultiBfsLayout(seeds, filteredSystems, filteredConnections);
-  }, [viewMode, layoutKey, seeds, filteredSystems, filteredConnections, viewLayouts]);
+    return computeMultiBfsLayout(subscribedSystemIds, filteredSystems, filteredConnections);
+  }, [viewMode, layoutKey, subscribedSystemIds, filteredSystems, filteredConnections, viewLayouts]);
 
   // Tracks the previous connections to detect newly-added connections (used to
   // re-anchor systems that were isolated before gaining a connection).
@@ -80,7 +77,7 @@ export function useViewLayout(
 
     // First entry: persist a full multi-root BFS layout.
     if (!stored || Object.keys(stored).length === 0) {
-      const layout = computeMultiBfsLayout(seeds, filteredSystems, filteredConnections);
+      const layout = computeMultiBfsLayout(subscribedSystemIds, filteredSystems, filteredConnections);
       setViewLayouts(prev => ({ ...prev, [layoutKey]: layout }));
       return;
     }
@@ -93,7 +90,7 @@ export function useViewLayout(
     const prevConnections = prevConnectionsRef.current;
     prevConnectionsRef.current = filteredConnections;
 
-    const seedSet = new Set(seeds);
+    const seedSet = new Set(subscribedSystemIds);
     const prevConnectedIds = new Set<string>();
     prevConnections?.forEach(c => {
       prevConnectedIds.add(c.source);
@@ -132,7 +129,7 @@ export function useViewLayout(
     });
 
     setViewLayouts(prev => ({ ...prev, [layoutKey]: merged }));
-  }, [viewMode, layoutKey, seeds, filteredSystems, filteredConnections, viewLayouts, setViewLayouts]);
+  }, [viewMode, layoutKey, subscribedSystemIds, filteredSystems, filteredConnections, viewLayouts, setViewLayouts]);
 
   const savePosition = useCallback(
     (systemId: string, pos: { x: number; y: number }) => {
@@ -155,9 +152,14 @@ export function useViewLayout(
   const rearrangeLayout = useCallback(() => {
     if (!layoutKey) return;
 
-    const layout = computeMultiBfsLayout(seeds, filteredSystems, filteredConnections, layoutPositions ?? undefined);
+    const layout = computeMultiBfsLayout(
+      subscribedSystemIds,
+      filteredSystems,
+      filteredConnections,
+      layoutPositions ?? undefined,
+    );
     setViewLayouts(prev => ({ ...prev, [layoutKey]: layout }));
-  }, [layoutKey, seeds, filteredSystems, filteredConnections, layoutPositions, setViewLayouts]);
+  }, [layoutKey, subscribedSystemIds, filteredSystems, filteredConnections, layoutPositions, setViewLayouts]);
 
   return { layoutPositions, savePosition, rearrangeLayout };
 }

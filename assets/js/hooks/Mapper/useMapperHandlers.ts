@@ -94,7 +94,15 @@ export const useMapperHandlers = (handlerRefs: RefObject<MapHandlers>[], hooksRe
     // prevEventTime = currentTime;
     // console.log('JOipP', `IN [${inIndex++}] [${timeDiff}] ${getFormattedTime()}`, { type, body });
 
-    if (!eventTickRef.current || !visibleRef.current) {
+    if (!eventTickRef.current) {
+      return;
+    }
+
+    // Always process full-reset "init" events (e.g. the re-fetch pushed after
+    // the window regains focus) even while hidden, so a restore that races with
+    // the visibility flag never drops the fresh map state. Everything else is
+    // still dropped while hidden to avoid rendering work in a background tab.
+    if (!visibleRef.current && type !== 'init') {
       return;
     }
 

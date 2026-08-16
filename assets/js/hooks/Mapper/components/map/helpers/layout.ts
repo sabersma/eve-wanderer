@@ -234,15 +234,10 @@ export function computeMultiBfsLayout(
     xCursor += width + MARGIN_X * 4;
   });
 
-  // Isolated systems (no connections) keep their current/data position.
-  const connectedIds = new Set<string>();
-  for (const c of connections) {
-    connectedIds.add(c.source);
-    connectedIds.add(c.target);
-  }
+  // Systems not reached by any subscribed root (the user's own character's
+  // separate cluster, or isolated systems) keep their current/data position.
   for (const s of systems) {
     if (positions[s.id]) continue;
-    if (connectedIds.has(s.id)) continue;
     positions[s.id] = currentLayout?.[s.id] ?? { x: s.position.x, y: s.position.y };
   }
 

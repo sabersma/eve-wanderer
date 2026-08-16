@@ -98,7 +98,6 @@ export const MapWrapper = () => {
   const { layoutPositions, savePosition, rearrangeLayout } = useViewLayout(
     viewMode,
     subscribedSystemIds,
-    myCharSystemIds,
     filteredSystems,
     filteredConnections,
   );

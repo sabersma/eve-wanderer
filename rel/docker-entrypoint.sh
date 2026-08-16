@@ -2,6 +2,7 @@
 set -e
 
 if [ "$1" = 'run' ]; then
+      /app/bin/migrate.sh
       exec /app/bin/wanderer_app start
 
 elif [ "$1" = 'db' ]; then

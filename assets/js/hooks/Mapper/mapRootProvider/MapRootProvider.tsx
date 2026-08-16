@@ -4,6 +4,7 @@ import {
   ActivitySummary,
   CommandLinkSignatureToSystem,
   MapUnionTypes,
+  OutCommand,
   OutCommandHandler,
   SolarSystemConnection,
   TrackingCharacter,
@@ -267,6 +268,23 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
       });
     }
   }, [ref.viewMode, ref.selectedHomeSystemId, updateViewModeSettings]);
+
+  // When switching back from a home view to the "all" view, re-fetch the full
+  // map (ui_loaded → init) so systems/connections generated while the tab was
+  // hidden/minimized — and therefore not connected to the selected home — show
+  // up without a manual F5.
+  const prevModeForReloadRef = useRef<ViewMode>(ref.viewMode);
+  useEffect(() => {
+    const prevMode = prevModeForReloadRef.current;
+    prevModeForReloadRef.current = ref.viewMode;
+
+    if (prevMode === 'home' && ref.viewMode === 'all') {
+      outCommand({
+        type: OutCommand.uiLoaded,
+        data: { version: localStorage.getItem('wandererLastVersion') },
+      });
+    }
+  }, [ref.viewMode, outCommand]);
 
   return (
     <MapRootContext.Provider

@@ -233,6 +233,11 @@ export interface MapHandlers {
 }
 
 export enum OutCommand {
+  // Signals the backend the UI is ready (or re-awakened) and should re-push the
+  // full map via "init". Fired on mount/reconnect/window-focus, and when switching
+  // back to the "all" view so systems/connections generated while the tab was
+  // hidden or minimized (and not connected to the selected home) are re-loaded.
+  uiLoaded = 'ui_loaded',
   addHub = 'add_hub',
   deleteHub = 'delete_hub',
   addUserHub = 'add_user_hub',

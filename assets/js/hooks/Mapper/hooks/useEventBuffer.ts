@@ -21,7 +21,7 @@ export const useEventBuffer = <T>(handler: UseEventBufferHandler<T>) => {
       if (eventsBufferRef.current.length > 0) {
         eventTick();
       }
-    }, 10),
+    }, 100),
     [],
   );
   const eventTickRef = useRef(eventTick);

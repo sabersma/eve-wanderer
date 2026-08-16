@@ -16,12 +16,14 @@ export const useMapInit = (layoutPositions: LayoutPositions | null, viewMode: Vi
   ref.current = { update, data, rf, layoutPositions, viewMode };
 
   const updateSystems = useCallback((systems: SolarSystemRawType[]) => {
-    const { rf, layoutPositions, viewMode } = ref.current;
+    const { rf, layoutPositions } = ref.current;
     rf.setNodes(systems.map(convertSystem2Node));
 
-    // In a home view, restore the per-view layout on top of the data
-    // coordinates (init re-push resets nodes to shared coordinates).
-    if (viewMode === 'home' && layoutPositions) {
+    // Restore the per-view layout (subscription/global) on top of the data
+    // coordinates. layoutPositions is null only when there is no layout yet,
+    // and equals data coordinates in the global view, so applying it whenever
+    // it is non-empty is safe and keeps the view stable across init re-pushes.
+    if (layoutPositions && Object.keys(layoutPositions).length > 0) {
       rf.setNodes(nodes =>
         nodes.map(n => {
           const pos = layoutPositions[n.id];

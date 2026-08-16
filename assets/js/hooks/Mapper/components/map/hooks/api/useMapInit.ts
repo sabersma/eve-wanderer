@@ -17,20 +17,17 @@ export const useMapInit = (layoutPositions: LayoutPositions | null, viewMode: Vi
 
   const updateSystems = useCallback((systems: SolarSystemRawType[]) => {
     const { rf, layoutPositions } = ref.current;
-    rf.setNodes(systems.map(convertSystem2Node));
 
-    // Restore the per-view layout (subscription/global) on top of the data
-    // coordinates. layoutPositions is null only when there is no layout yet,
-    // and equals data coordinates in the global view, so applying it whenever
-    // it is non-empty is safe and keeps the view stable across init re-pushes.
-    if (layoutPositions && Object.keys(layoutPositions).length > 0) {
-      rf.setNodes(nodes =>
-        nodes.map(n => {
-          const pos = layoutPositions[n.id];
-          return pos ? { ...n, position: pos } : n;
-        }),
-      );
-    }
+    // Build each node and apply the per-view layout position directly in the
+    // same pass, so the sorted cache is honored in a single setNodes call
+    // (avoids the reset-to-data-coords-then-relayout race).
+    rf.setNodes(
+      systems.map(s => {
+        const node = convertSystem2Node(s);
+        const pos = layoutPositions?.[s.id];
+        return pos ? { ...node, position: pos } : node;
+      }),
+    );
   }, []);
 
   const { handleEvent: handleUpdateSystems } = useEventBuffer<any>(updateSystems);

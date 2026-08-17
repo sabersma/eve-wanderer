@@ -206,16 +206,19 @@ export const TopSearchSidebar = ({ show, onHide }: TopSearchSidebarProps) => {
 
   const {
     data: { systems },
+    visibleSystemIds,
   } = useMapRootState();
 
   const itemTemplate = useItemTemplate();
 
   const systemsCompiled = useMemo<CompiledSystem[]>(() => {
-    return systems.map(x => ({
-      dynamic: x,
-      static: getSystemStaticInfo(x.id),
-    }));
-  }, [systems]);
+    return systems
+      .filter(x => visibleSystemIds.has(x.id))
+      .map(x => ({
+        dynamic: x,
+        static: getSystemStaticInfo(x.id),
+      }));
+  }, [systems, visibleSystemIds]);
 
   const onShow = useCallback(() => {
     inputRef.current?.focus();

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { SolarSystemConnection, SolarSystemRawType } from '@/hooks/Mapper/types';
-import { ViewMode } from '@/hooks/Mapper/mapRootProvider';
+import type { ViewMode } from '@/hooks/Mapper/mapRootProvider';
 
 /**
  * Build an adjacency list from connections for BFS traversal.
@@ -45,6 +45,43 @@ function bfsReachable(seeds: string[], adjacency: Map<string, Set<string>>): Set
   return visited;
 }
 
+/**
+ * Pure helper that computes the set of visible system ids for the current view.
+ *
+ * Shared by `useFilteredMapData` (layout/filtering) and the TopSearch search
+ * list so both stay consistent:
+ * - 'all' mode → every system.
+ * - subscription view with no subscription → empty (nothing rendered).
+ * - otherwise → BFS from subscribed systems + my characters' current systems.
+ */
+export function computeVisibleSystemIds(
+  systems: SolarSystemRawType[],
+  connections: SolarSystemConnection[],
+  viewMode: ViewMode,
+  subscribedSystemIds: string[],
+  myCharSystemIds: string[],
+): Set<string> {
+  if (viewMode === 'all') {
+    return new Set(systems.map(s => s.id));
+  }
+
+  // Before the first subscription, render nothing.
+  if (subscribedSystemIds.length === 0) {
+    return new Set();
+  }
+
+  const seeds = [...new Set([...subscribedSystemIds, ...myCharSystemIds])].filter(id =>
+    systems.some(s => s.id === id),
+  );
+
+  if (seeds.length === 0) {
+    return new Set();
+  }
+
+  const adjacency = buildAdjacencyList(connections);
+  return bfsReachable(seeds, adjacency);
+}
+
 export interface FilteredMapData {
   systems: SolarSystemRawType[];
   connections: SolarSystemConnection[];
@@ -53,11 +90,6 @@ export interface FilteredMapData {
 
 /**
  * Hook that filters systems and connections based on the current view mode.
- *
- * - 'all' mode (admin/manager global view): returns everything unchanged.
- * - subscription view: BFS from the user's subscribed systems plus the systems
- *   where the user's own characters are currently located. Locked systems have
- *   no special meaning here (lock only applies in the global view).
  */
 export function useFilteredMapData(
   systems: SolarSystemRawType[],
@@ -67,33 +99,13 @@ export function useFilteredMapData(
   myCharSystemIds: string[],
 ): FilteredMapData {
   return useMemo(() => {
-    if (viewMode === 'all') {
-      return {
-        systems,
-        connections,
-        visibleSystemIds: new Set(systems.map(s => s.id)),
-      };
-    }
-
-    // Before the first subscription, render nothing (no systems, no paths) —
-    // even if the user's own character is somewhere on the map. Only after
-    // subscribing do "my character's current system" seeds kick in.
-    if (subscribedSystemIds.length === 0) {
-      return { systems: [], connections: [], visibleSystemIds: new Set() };
-    }
-
-    // Subscribed systems + my characters' current systems, restricted to those
-    // that actually exist on the map.
-    const seeds = [...new Set([...subscribedSystemIds, ...myCharSystemIds])].filter(id =>
-      systems.some(s => s.id === id),
+    const visibleSystemIds = computeVisibleSystemIds(
+      systems,
+      connections,
+      viewMode,
+      subscribedSystemIds,
+      myCharSystemIds,
     );
-
-    if (seeds.length === 0) {
-      return { systems: [], connections: [], visibleSystemIds: new Set() };
-    }
-
-    const adjacency = buildAdjacencyList(connections);
-    const visibleSystemIds = bfsReachable(seeds, adjacency);
 
     const filteredSystems = systems.filter(s => visibleSystemIds.has(s.id));
     const filteredConnections = connections.filter(

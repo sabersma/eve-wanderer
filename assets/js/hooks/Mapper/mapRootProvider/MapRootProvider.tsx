@@ -1,5 +1,5 @@
 import { ContextStoreDataUpdate, useContextStore } from '@/hooks/Mapper/utils';
-import { createContext, Dispatch, ForwardedRef, forwardRef, SetStateAction, useContext, useEffect, useRef } from 'react';
+import { createContext, Dispatch, ForwardedRef, forwardRef, SetStateAction, useContext, useEffect, useMemo, useRef } from 'react';
 import {
   ActivitySummary,
   CommandLinkSignatureToSystem,
@@ -44,6 +44,7 @@ import { useMapUserSettings } from '@/hooks/Mapper/mapRootProvider/hooks/useMapU
 import { useGlobalHooks } from '@/hooks/Mapper/mapRootProvider/hooks/useGlobalHooks.ts';
 import { useViewModeSettings } from '@/hooks/Mapper/mapRootProvider/hooks/useViewModeSettings.ts';
 import { DEFAULT_SIGNATURE_SETTINGS, SignatureSettingsType } from '@/hooks/Mapper/constants/signatures';
+import { computeVisibleSystemIds } from '@/hooks/Mapper/components/mapWrapper/hooks/useFilteredMapData';
 
 export type ViewMode = 'all' | 'home';
 
@@ -136,6 +137,7 @@ export interface MapRootContextProps {
   resetWidgets: () => void;
   comments: UseCommentsData;
   charactersCache: UseCharactersCacheData;
+  visibleSystemIds: Set<string>;
 
   /**
    * !!!
@@ -191,6 +193,7 @@ const MapRootContext = createContext<MapRootContextProps>({
     characters: new Map(),
     lastUpdateKey: 0,
   },
+  visibleSystemIds: new Set(),
   storedSettings: {
     interfaceSettings: STORED_INTERFACE_DEFAULT_VALUES,
     setInterfaceSettings: () => null,
@@ -243,6 +246,32 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
 
   const comments = useComments({ outCommand });
   const charactersCache = useCharactersCache({ outCommand });
+
+  // Systems where the user's own characters are currently located (extra BFS
+  // seeds so a character outside the subscribed cluster stays visible).
+  const myCharSystemIds = useMemo(
+    () =>
+      ref.characters
+        .filter(c => ref.userCharacters.includes(c.eve_id))
+        .map(c => c.location?.solar_system_id)
+        .filter((id): id is number => id != null)
+        .map(id => id.toString()),
+    [ref.characters, ref.userCharacters],
+  );
+
+  // Visible systems for the current view, shared with the search list (TopSearch)
+  // so it follows the same subscription filtering as the map.
+  const visibleSystemIds = useMemo(
+    () =>
+      computeVisibleSystemIds(
+        ref.systems,
+        ref.connections,
+        ref.viewMode,
+        ref.subscribedSystemIds,
+        myCharSystemIds,
+      ),
+    [ref.systems, ref.connections, ref.viewMode, ref.subscribedSystemIds, myCharSystemIds],
+  );
 
   // Role-based default view mode, applied once permissions are known.
   // Admin/manager start on the global view; member/viewer on the subscription
@@ -304,6 +333,7 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
         resetWidgets,
         comments,
         charactersCache,
+        visibleSystemIds,
         storedSettings,
       }}
     >

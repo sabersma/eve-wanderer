@@ -52,6 +52,7 @@ export const MapWrapper = () => {
       systemSignatures,
       viewMode,
       subscribedSystemIds,
+      manuallyAddedSystemIds,
       connections,
       characters,
       userCharacters,
@@ -92,7 +93,7 @@ export const MapWrapper = () => {
     visibleSystemIds,
     systems: filteredSystems,
     connections: filteredConnections,
-  } = useFilteredMapData(systems, connections, viewMode, subscribedSystemIds, myCharSystemIds);
+  } = useFilteredMapData(systems, connections, viewMode, subscribedSystemIds, myCharSystemIds, manuallyAddedSystemIds);
 
   // Per-view local layout (null in 'all' view → use shared global coordinates)
   const { layoutPositions, savePosition, rearrangeLayout } = useViewLayout(
@@ -263,12 +264,14 @@ export const MapWrapper = () => {
 
   const handleSubmitAddSystem: SearchOnSubmitCallback = useCallback(
     async item => {
+      // Even if the system already exists on the map, still record the manual
+      // add so it shows up in this user's subscription as a manually-added
+      // isolated system (the backend add is idempotent), and center on it.
       if (ref.current.systems.some(x => parseInt(x.id) === item.value)) {
         emitMapEvent({
           name: Commands.centerSystem,
           data: item.value.toString(),
         });
-        return;
       }
 
       await outCommand({

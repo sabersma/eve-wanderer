@@ -60,6 +60,7 @@ export function computeVisibleSystemIds(
   viewMode: ViewMode,
   subscribedSystemIds: string[],
   myCharSystemIds: string[],
+  manuallyAddedSystemIds: string[],
 ): Set<string> {
   if (viewMode === 'all') {
     return new Set(systems.map(s => s.id));
@@ -79,7 +80,24 @@ export function computeVisibleSystemIds(
   }
 
   const adjacency = buildAdjacencyList(connections);
-  return bfsReachable(seeds, adjacency);
+  const visibleSystemIds = bfsReachable(seeds, adjacency);
+
+  // Keep isolated systems (no connections) visible only if the current user
+  // manually added them, so a freshly right-click-added system can be wired up
+  // while other users' orphaned systems stay hidden.
+  const manuallyAddedSet = new Set(manuallyAddedSystemIds);
+  const connectedIds = new Set<string>();
+  for (const c of connections) {
+    connectedIds.add(c.source);
+    connectedIds.add(c.target);
+  }
+  for (const s of systems) {
+    if (!connectedIds.has(s.id) && manuallyAddedSet.has(s.id)) {
+      visibleSystemIds.add(s.id);
+    }
+  }
+
+  return visibleSystemIds;
 }
 
 export interface FilteredMapData {
@@ -97,6 +115,7 @@ export function useFilteredMapData(
   viewMode: ViewMode,
   subscribedSystemIds: string[],
   myCharSystemIds: string[],
+  manuallyAddedSystemIds: string[],
 ): FilteredMapData {
   return useMemo(() => {
     const visibleSystemIds = computeVisibleSystemIds(
@@ -105,6 +124,7 @@ export function useFilteredMapData(
       viewMode,
       subscribedSystemIds,
       myCharSystemIds,
+      manuallyAddedSystemIds,
     );
 
     const filteredSystems = systems.filter(s => visibleSystemIds.has(s.id));
@@ -117,5 +137,5 @@ export function useFilteredMapData(
       connections: filteredConnections,
       visibleSystemIds,
     };
-  }, [systems, connections, viewMode, subscribedSystemIds, myCharSystemIds]);
+  }, [systems, connections, viewMode, subscribedSystemIds, myCharSystemIds, manuallyAddedSystemIds]);
 }

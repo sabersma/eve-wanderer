@@ -110,6 +110,7 @@ export type CommandInit = {
   map_slug?: string;
   expired_characters: string[];
   subscribed_system_ids?: string[];
+  manually_added_system_ids?: string[];
   subscription_limit?: number | null;
 };
 

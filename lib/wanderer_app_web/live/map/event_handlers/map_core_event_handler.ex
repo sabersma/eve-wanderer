@@ -779,6 +779,9 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     {:ok, subscribed_system_ids} =
       WandererApp.MapUserSettingsRepo.get_subscribed_systems(map_id, current_user.id)
 
+    {:ok, manually_added_system_ids} =
+      WandererApp.MapUserSettingsRepo.get_manually_added_systems(map_id, current_user.id)
+
     subscription_limit = subscription_limit(user_permissions)
 
     Logger.info(
@@ -808,6 +811,7 @@ defmodule WandererAppWeb.MapCoreEventHandler do
           wormholes: WandererApp.CachedInfo.get_wormhole_types!(),
           effects: WandererApp.CachedInfo.get_effects!(),
           subscribed_system_ids: subscribed_system_ids,
+          manually_added_system_ids: manually_added_system_ids,
           subscription_limit: subscription_limit,
           reset: true
         })

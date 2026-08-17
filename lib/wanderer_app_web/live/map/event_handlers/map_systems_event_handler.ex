@@ -125,6 +125,8 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
       main_character_id
     )
 
+    socket = record_manual_add(socket, map_id, current_user_id, solar_system_id)
+
     {:noreply, socket}
   end
 
@@ -151,6 +153,8 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
       current_user_id,
       main_character_id
     )
+
+    socket = record_manual_add(socket, map_id, current_user_id, solar_system_id)
 
     {:noreply, socket}
   end
@@ -397,6 +401,23 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
       class_title: class_title,
       system_static_info: system_static_info
     }
+  end
+
+  defp record_manual_add(socket, map_id, current_user_id, solar_system_id) do
+    {:ok, _} =
+      WandererApp.MapUserSettingsRepo.add_manually_added_system(
+        map_id,
+        current_user_id,
+        solar_system_id
+      )
+
+    {:ok, manually_added_system_ids} =
+      WandererApp.MapUserSettingsRepo.get_manually_added_systems(map_id, current_user_id)
+
+    socket
+    |> MapEventHandler.push_map_event("map_updated", %{
+      manually_added_system_ids: manually_added_system_ids
+    })
   end
 
   defp can_update_system?(:locked, %{lock_system: false} = _user_permissions), do: false

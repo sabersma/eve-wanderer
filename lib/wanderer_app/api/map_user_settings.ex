@@ -49,6 +49,7 @@ defmodule WandererApp.Api.MapUserSettings do
 
     define(:update_hubs, action: :update_hubs)
     define(:update_subscriptions, action: :update_subscriptions)
+    define(:update_manually_added_systems, action: :update_manually_added_systems)
     define(:update_settings, action: :update_settings)
     define(:update_following_character, action: :update_following_character)
     define(:update_main_character, action: :update_main_character)
@@ -91,6 +92,11 @@ defmodule WandererApp.Api.MapUserSettings do
       accept [:subscribed_system_ids]
       require_atomic? false
     end
+
+    update :update_manually_added_systems do
+      accept [:manually_added_system_ids]
+      require_atomic? false
+    end
   end
 
   attributes do
@@ -118,6 +124,12 @@ defmodule WandererApp.Api.MapUserSettings do
     end
 
     attribute :subscribed_system_ids, {:array, :string} do
+      allow_nil?(true)
+      public? true
+      default([])
+    end
+
+    attribute :manually_added_system_ids, {:array, :string} do
       allow_nil?(true)
       public? true
       default([])

@@ -64,6 +64,7 @@ export type MapRootData = MapUnionTypes & {
   expiredCharacters: string[];
   viewMode: ViewMode;
   subscribedSystemIds: string[];
+  manuallyAddedSystemIds: string[];
   subscriptionLimit: number | null;
 };
 
@@ -114,6 +115,7 @@ const INITIAL_DATA: MapRootData = {
   expiredCharacters: [],
   viewMode: 'all',
   subscribedSystemIds: [],
+  manuallyAddedSystemIds: [],
   subscriptionLimit: null,
 };
 
@@ -269,8 +271,9 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
         ref.viewMode,
         ref.subscribedSystemIds,
         myCharSystemIds,
+        ref.manuallyAddedSystemIds,
       ),
-    [ref.systems, ref.connections, ref.viewMode, ref.subscribedSystemIds, myCharSystemIds],
+    [ref.systems, ref.connections, ref.viewMode, ref.subscribedSystemIds, myCharSystemIds, ref.manuallyAddedSystemIds],
   );
 
   // Role-based default view mode, applied once permissions are known.

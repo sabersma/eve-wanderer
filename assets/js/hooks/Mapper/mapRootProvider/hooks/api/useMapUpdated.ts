@@ -41,6 +41,10 @@ export const useMapUpdated = () => {
       out.subscribedSystemIds = props.subscribed_system_ids;
     }
 
+    if ('manually_added_system_ids' in props) {
+      out.manuallyAddedSystemIds = props.manually_added_system_ids;
+    }
+
     if ('subscription_limit' in props) {
       out.subscriptionLimit = props.subscription_limit;
     }

@@ -31,6 +31,7 @@ export const useMapInit = () => {
         map_slug,
         expired_characters,
         subscribed_system_ids,
+        manually_added_system_ids,
         subscription_limit,
       } = props;
 
@@ -125,6 +126,10 @@ export const useMapInit = () => {
 
       if (subscribed_system_ids) {
         updateData.subscribedSystemIds = subscribed_system_ids;
+      }
+
+      if (manually_added_system_ids) {
+        updateData.manuallyAddedSystemIds = manually_added_system_ids;
       }
 
       if (subscription_limit !== undefined) {

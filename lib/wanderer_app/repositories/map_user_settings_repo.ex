@@ -102,6 +102,45 @@ defmodule WandererApp.MapUserSettingsRepo do
     end
   end
 
+  def get_manually_added_systems(map_id, user_id) do
+    case get(map_id, user_id) do
+      {:ok, user_settings} when not is_nil(user_settings) ->
+        {:ok, Map.get(user_settings, :manually_added_system_ids, [])}
+
+      _ ->
+        {:ok, []}
+    end
+  end
+
+  def add_manually_added_system(map_id, user_id, solar_system_id) do
+    system_id = to_string(solar_system_id)
+
+    {:ok, current} = get_manually_added_systems(map_id, user_id)
+
+    updated =
+      [system_id | current]
+      |> Enum.uniq()
+
+    update_manually_added_systems(map_id, user_id, updated)
+  end
+
+  def update_manually_added_systems(map_id, user_id, system_ids) do
+    get!(map_id, user_id)
+    |> case do
+      user_settings when not is_nil(user_settings) ->
+        user_settings
+        |> WandererApp.Api.MapUserSettings.update_manually_added_systems(%{manually_added_system_ids: system_ids})
+
+      _ ->
+        WandererApp.Api.MapUserSettings.create!(%{
+          map_id: map_id,
+          user_id: user_id,
+          settings: @default_form_data |> Jason.encode!()
+        })
+        |> WandererApp.Api.MapUserSettings.update_manually_added_systems(%{manually_added_system_ids: system_ids})
+    end
+  end
+
   def to_form_data(nil), do: {:ok, @default_form_data}
   def to_form_data(%{settings: settings} = _user_settings), do: {:ok, Jason.decode!(settings)}
 

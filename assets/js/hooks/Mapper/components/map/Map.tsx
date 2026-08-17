@@ -145,11 +145,19 @@ const MapComp = ({
     }));
   }, [layoutPositions, setNodes]);
 
-  // Apply view-mode visibility filtering via the hidden property
+  // Apply view-mode filtering: visibility via the hidden property, and in the
+  // subscription view make locked systems draggable (a drag only affects the
+  // per-user local layout, so it is safe). Locked systems stay non-deletable.
   const displayNodes = useMemo(() => {
-    if (!visibleSystemIds) return nodes;
-    return nodes.map(n => ({ ...n, hidden: !visibleSystemIds.has(n.id) }));
-  }, [nodes, visibleSystemIds]);
+    let base = nodes;
+
+    if (viewMode === 'home') {
+      base = nodes.map(n => ({ ...n, draggable: true }));
+    }
+
+    if (!visibleSystemIds) return base;
+    return base.map(n => ({ ...n, hidden: !visibleSystemIds.has(n.id) }));
+  }, [nodes, visibleSystemIds, viewMode]);
 
   const displayEdges = useMemo(() => {
     if (!visibleSystemIds) return edges;

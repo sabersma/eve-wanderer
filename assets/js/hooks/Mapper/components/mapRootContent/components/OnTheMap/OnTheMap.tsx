@@ -46,6 +46,7 @@ export const OnTheMap = ({ show, onHide }: OnTheMapProps) => {
   const {
     data: { characters, userCharacters },
     storedSettings: { settingsOnTheMap, settingsOnTheMapUpdate },
+    visibleSystemIds,
   } = useMapRootState();
 
   const [searchVal, setSearchVal] = useState('');
@@ -59,7 +60,20 @@ export const OnTheMap = ({ show, onHide }: OnTheMapProps) => {
   );
 
   const sorted = useMemo(() => {
-    let out = characters.map(x => ({ ...x, isOwn: userCharacters.includes(x.eve_id) })).sort(sortCharacters);
+    // Non-admin/manager users only see characters located in systems rendered by
+    // their subscription view (same visibility as the map / search list). Admins
+    // and managers keep seeing every map member.
+    let out = characters
+      .filter(c => {
+        if (isAdminOrManager) {
+          return true;
+        }
+
+        const systemId = c.location?.solar_system_id;
+        return systemId != null && visibleSystemIds.has(String(systemId));
+      })
+      .map(x => ({ ...x, isOwn: userCharacters.includes(x.eve_id) }))
+      .sort(sortCharacters);
 
     if (searchVal !== '') {
       out = out.filter(x => {
@@ -106,7 +120,7 @@ export const OnTheMap = ({ show, onHide }: OnTheMapProps) => {
     }
 
     return out.filter(x => x.online);
-  }, [showOffline, searchVal, characters, settingsOnTheMap.hideOffline, userCharacters]);
+  }, [showOffline, searchVal, characters, settingsOnTheMap.hideOffline, userCharacters, isAdminOrManager, visibleSystemIds]);
 
   return (
     <Sidebar

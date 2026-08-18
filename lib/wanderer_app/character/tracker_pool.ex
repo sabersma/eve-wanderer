@@ -17,10 +17,7 @@ defmodule WandererApp.Character.TrackerPool do
   @registry :tracker_pool_registry
   @unique_registry :unique_tracker_pool_registry
 
-  @update_location_interval :timer.seconds(1)
-  @update_online_interval :timer.seconds(30)
   @check_offline_characters_interval :timer.minutes(5)
-  @update_ship_interval :timer.seconds(2)
   @update_info_interval :timer.minutes(2)
   @update_wallet_interval :timer.minutes(10)
 
@@ -30,6 +27,18 @@ defmodule WandererApp.Character.TrackerPool do
   defp location_concurrency do
     Application.get_env(:wanderer_app, :location_concurrency, System.schedulers_online() * 12)
   end
+
+  # Polling intervals for the char-location ESI bucket (location/ship/online share
+  # a single 1200 tokens / 900s budget). Configurable via runtime.exs so ops can
+  # retune without a deploy.
+  defp update_location_interval,
+    do: Application.get_env(:wanderer_app, :update_location_interval_ms, :timer.seconds(2))
+
+  defp update_ship_interval,
+    do: Application.get_env(:wanderer_app, :update_ship_interval_ms, :timer.seconds(60))
+
+  defp update_online_interval,
+    do: Application.get_env(:wanderer_app, :update_online_interval_ms, :timer.seconds(60))
 
   # Other operations can use lower concurrency
   @standard_concurrency System.schedulers_online() * 2
@@ -175,7 +184,7 @@ defmodule WandererApp.Character.TrackerPool do
         } =
           state
       ) do
-    Process.send_after(self(), :update_online, @update_online_interval)
+    Process.send_after(self(), :update_online, update_online_interval())
 
     try do
       characters
@@ -208,7 +217,7 @@ defmodule WandererApp.Character.TrackerPool do
         } =
           state
       ) do
-    Process.send_after(self(), :update_online, @update_online_interval)
+    Process.send_after(self(), :update_online, update_online_interval())
 
     try do
       characters
@@ -272,7 +281,7 @@ defmodule WandererApp.Character.TrackerPool do
         } =
           state
       ) do
-    Process.send_after(self(), :update_location, @update_location_interval)
+    Process.send_after(self(), :update_location, update_location_interval())
 
     start_time = System.monotonic_time(:millisecond)
 
@@ -326,7 +335,7 @@ defmodule WandererApp.Character.TrackerPool do
         :update_location,
         state
       ) do
-    Process.send_after(self(), :update_location, @update_location_interval)
+    Process.send_after(self(), :update_location, update_location_interval())
 
     {:noreply, state}
   end
@@ -340,7 +349,7 @@ defmodule WandererApp.Character.TrackerPool do
         } =
           state
       ) do
-    Process.send_after(self(), :update_ship, @update_ship_interval)
+    Process.send_after(self(), :update_ship, update_ship_interval())
 
     # Backpressure: Skip ship updates if location updates are falling behind
     if location_duration > 1000 do
@@ -383,7 +392,7 @@ defmodule WandererApp.Character.TrackerPool do
         :update_ship,
         state
       ) do
-    Process.send_after(self(), :update_ship, @update_ship_interval)
+    Process.send_after(self(), :update_ship, update_ship_interval())
 
     {:noreply, state}
   end

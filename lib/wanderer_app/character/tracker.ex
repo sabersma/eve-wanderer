@@ -284,6 +284,14 @@ defmodule WandererApp.Character.Tracker do
        when is_binary(reset_seconds),
        do: :timer.seconds((reset_seconds |> String.to_integer()) + 1)
 
+  defp get_reset_timeout(%{"retry-after" => [retry_seconds]}, _default_timeout)
+       when is_binary(retry_seconds) do
+    case Integer.parse(retry_seconds) do
+      {seconds, _} -> :timer.seconds(seconds + 1)
+      :error -> @limit_ttl
+    end
+  end
+
   defp get_reset_timeout(_headers, default_timeout), do: default_timeout
 
   def update_info(character_id) do

@@ -27,6 +27,37 @@ defmodule WandererApp.Esi.ApiClient do
     [base_url: "https://esi.evetech.net", finch: pool]
   end
 
+  # Global circuit breaker for ESI's legacy "error rate limit" (max 100 non-2xx/3xx
+  # responses/min app-wide, returns 420 on ALL ESI routes until the window resets).
+  # Short-circuits every ESI GET/POST during the blackout so pools don't keep hitting
+  # ESI (and extending the blackout) while it's active.
+  @esi_blackout_cache_key "esi:global_blackout_until"
+
+  defp esi_globally_rate_limited?, do: Cache.has_key?(@esi_blackout_cache_key)
+
+  defp mark_global_rate_limited(headers) do
+    reset_seconds =
+      headers
+      |> Map.get("x-esi-error-limit-reset", ["1"])
+      |> List.first()
+      |> to_string()
+      |> Integer.parse()
+      |> case do
+        {seconds, _} -> seconds
+        :error -> 1
+      end
+
+    Cache.put(@esi_blackout_cache_key, true, ttl: :timer.seconds(reset_seconds + 1))
+  end
+
+  defp emit_esi_error(path, error_type) do
+    :telemetry.execute(
+      [:wanderer_app, :esi, :error],
+      %{count: 1},
+      %{endpoint: path, error_type: error_type}
+    )
+  end
+
   def get_server_status, do: do_get("/status", [], @cache_opts)
 
   def set_autopilot_waypoint(add_to_beginning, clear_other_waypoints, destination_id, opts \\ []),
@@ -333,6 +364,14 @@ defmodule WandererApp.Esi.ApiClient do
   end
 
   defp do_get_request(path, api_opts, opts, pool) do
+    if esi_globally_rate_limited?() do
+      {:error, :error_limited, %{}}
+    else
+      do_get_request_uncached(path, api_opts, opts, pool)
+    end
+  end
+
+  defp do_get_request_uncached(path, api_opts, opts, pool) do
     try do
       req_options_for_pool(pool)
       |> Req.new()
@@ -351,9 +390,11 @@ defmodule WandererApp.Esi.ApiClient do
           {:ok, body}
 
         {:ok, %{status: 504}} ->
+          emit_esi_error(path, :timeout)
           {:error, :timeout}
 
         {:ok, %{status: 404}} ->
+          emit_esi_error(path, :not_found)
           {:error, :not_found}
 
         {:ok, %{status: 420, headers: headers} = _error} ->
@@ -386,6 +427,8 @@ defmodule WandererApp.Esi.ApiClient do
             reset_seconds: reset_seconds,
             remaining_requests: remaining
           )
+
+          mark_global_rate_limited(headers)
 
           {:error, :error_limited, headers}
 
@@ -420,9 +463,11 @@ defmodule WandererApp.Esi.ApiClient do
           {:error, :error_limited, headers}
 
         {:ok, %{status: status} = _error} when status in [401, 403] ->
+          emit_esi_error(path, status)
           do_get_retry(path, api_opts, opts)
 
         {:ok, %{status: status}} ->
+          emit_esi_error(path, status)
           {:error, "Unexpected status: #{status}"}
 
         {:error, %Mint.TransportError{reason: :timeout}} ->
@@ -432,6 +477,8 @@ defmodule WandererApp.Esi.ApiClient do
             %{count: 1},
             %{method: "GET", path: path, pool: pool}
           )
+
+          emit_esi_error(path, :pool_timeout)
 
           {:error, :pool_timeout}
 
@@ -445,6 +492,8 @@ defmodule WandererApp.Esi.ApiClient do
               %{method: "GET", path: path, pool: pool}
             )
           end
+
+          emit_esi_error(path, :request_failed)
 
           {:error, "Request failed"}
       end
@@ -557,6 +606,14 @@ defmodule WandererApp.Esi.ApiClient do
   end
 
   defp do_post_esi(url, opts, pool \\ @general_pool) do
+    if esi_globally_rate_limited?() do
+      {:error, :error_limited, %{}}
+    else
+      do_post_esi_uncached(url, opts, pool)
+    end
+  end
+
+  defp do_post_esi_uncached(url, opts, pool) do
     try do
       req_opts =
         (opts |> with_user_agent_opts() |> Keyword.merge(@retry_opts)) ++
@@ -569,9 +626,11 @@ defmodule WandererApp.Esi.ApiClient do
           {:ok, body}
 
         {:ok, %{status: 504}} ->
+          emit_esi_error(url, :timeout)
           {:error, :timeout}
 
         {:ok, %{status: 403}} ->
+          emit_esi_error(url, :forbidden)
           {:error, :forbidden}
 
         {:ok, %{status: 420, headers: headers} = _error} ->
@@ -604,6 +663,8 @@ defmodule WandererApp.Esi.ApiClient do
             reset_seconds: reset_seconds,
             remaining_requests: remaining
           )
+
+          mark_global_rate_limited(headers)
 
           {:error, :error_limited, headers}
 
@@ -638,6 +699,7 @@ defmodule WandererApp.Esi.ApiClient do
           {:error, :error_limited, headers}
 
         {:ok, %{status: status}} ->
+          emit_esi_error(url, status)
           {:error, "Unexpected status: #{status}"}
 
         {:error, %Mint.TransportError{reason: :timeout}} ->
@@ -647,6 +709,8 @@ defmodule WandererApp.Esi.ApiClient do
             %{count: 1},
             %{method: "POST_ESI", path: url, pool: pool}
           )
+
+          emit_esi_error(url, :pool_timeout)
 
           {:error, :pool_timeout}
 
@@ -660,6 +724,8 @@ defmodule WandererApp.Esi.ApiClient do
               %{method: "POST_ESI", path: url, pool: pool}
             )
           end
+
+          emit_esi_error(url, :request_failed)
 
           {:error, reason}
       end

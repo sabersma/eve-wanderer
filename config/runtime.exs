@@ -230,7 +230,16 @@ config :wanderer_app,
   # Location updates need high concurrency for <2s response with 3000+ characters
   location_concurrency:
     System.get_env("WANDERER_LOCATION_CONCURRENCY", "#{System.schedulers_online() * 12}")
-    |> String.to_integer()
+    |> String.to_integer(),
+  # Character tracker polling intervals - location/ship/online share the ESI
+  # char-location bucket (1200 tokens / 900s, 2 tokens per 2xx response).
+  # Defaults target ~80% of that budget: 2s + 60s + 60s = 0.533 req/s.
+  update_location_interval_ms:
+    System.get_env("WANDERER_UPDATE_LOCATION_INTERVAL_MS", "2000") |> String.to_integer(),
+  update_ship_interval_ms:
+    System.get_env("WANDERER_UPDATE_SHIP_INTERVAL_MS", "60000") |> String.to_integer(),
+  update_online_interval_ms:
+    System.get_env("WANDERER_UPDATE_ONLINE_INTERVAL_MS", "60000") |> String.to_integer()
 
 config :ueberauth, Ueberauth,
   providers: [

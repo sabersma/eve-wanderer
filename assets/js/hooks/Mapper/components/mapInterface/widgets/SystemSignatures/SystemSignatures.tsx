@@ -38,6 +38,7 @@ export const SystemSignatures = () => {
     selectedSignatures,
     setSelectedSignatures,
     handleDeleteSelected,
+    handleDeleteSignatures,
     handleSelectAll,
     handlePaste,
     hasUnsupportedLanguage,
@@ -97,6 +98,7 @@ export const SystemSignatures = () => {
           selectedSignatures={selectedSignatures}
           onSelectSignatures={setSelectedSignatures}
           onDeleteSelected={handleDeleteSelected}
+          onDeleteSignatures={handleDeleteSignatures}
           onSelectAll={handleSelectAll}
           onPaste={handlePaste}
           hasUnsupportedLanguage={hasUnsupportedLanguage}

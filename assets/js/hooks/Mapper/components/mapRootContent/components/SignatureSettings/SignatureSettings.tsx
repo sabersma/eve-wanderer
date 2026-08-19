@@ -23,9 +23,10 @@ export interface MapSettingsProps {
   show: boolean;
   onHide: () => void;
   signatureData: SystemSignature | undefined;
+  onDelete?: (signature: SystemSignature) => void | Promise<void>;
 }
 
-export const SignatureSettings = ({ systemId, show, onHide, signatureData }: MapSettingsProps) => {
+export const SignatureSettings = ({ systemId, show, onHide, signatureData, onDelete }: MapSettingsProps) => {
   const { outCommand } = useMapRootState();
 
   const handleShow = async () => {};
@@ -191,6 +192,13 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
     [signatureData, signatureForm, outCommand, systemId, onHide],
   );
 
+  const handleDelete = useCallback(async () => {
+    if (!signatureData) return;
+
+    await onDelete?.(signatureData);
+    onHide();
+  }, [signatureData, onDelete, onHide]);
+
   useEffect(() => {
     if (!signatureData) {
       signatureForm.reset();
@@ -280,7 +288,12 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
                 </label>
               </div>
 
-              <div className="flex gap-2 justify-end px-[0.75rem] pb-[0.5rem]">
+              <div className="flex gap-2 justify-between px-[0.75rem] pb-[0.5rem]">
+                {signatureData && onDelete ? (
+                  <WdButton type="button" outlined size="small" severity="danger" label="Delete" onClick={handleDelete} />
+                ) : (
+                  <span />
+                )}
                 <WdButton type="submit" outlined size="small" label="Save" />
               </div>
             </div>

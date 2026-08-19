@@ -62,16 +62,23 @@ export const useSystemSignaturesData = ({
     [settings, handleUpdateSignatures, onLazyDeleteChange],
   );
 
+  const handleDeleteSignatures = useCallback(
+    async (sigs: ExtendedSystemSignature[]) => {
+      if (!sigs.length) return;
+
+      const idsToDelete = new Set(sigs.map(s => s.eve_id));
+      const finalList = signatures.filter(s => !idsToDelete.has(s.eve_id));
+
+      setSelectedSignatures(prev => prev.filter(s => !idsToDelete.has(s.eve_id)));
+
+      await handleUpdateSignatures(finalList, false, true);
+    },
+    [handleUpdateSignatures, signatures],
+  );
+
   const handleDeleteSelected = useCallback(async () => {
-    if (!selectedSignatures.length) return;
-
-    const selectedIds = selectedSignatures.map(s => s.eve_id);
-    const finalList = signatures.filter(s => !selectedIds.includes(s.eve_id));
-
-    setSelectedSignatures([]);
-
-    await handleUpdateSignatures(finalList, false, true);
-  }, [handleUpdateSignatures, selectedSignatures, signatures]);
+    await handleDeleteSignatures(selectedSignatures);
+  }, [handleDeleteSignatures, selectedSignatures]);
 
   const handleSelectAll = useCallback(() => {
     setSelectedSignatures(signatures);
@@ -97,6 +104,7 @@ export const useSystemSignaturesData = ({
     selectedSignatures,
     setSelectedSignatures,
     handleDeleteSelected,
+    handleDeleteSignatures,
     handleSelectAll,
     handlePaste,
     hasUnsupportedLanguage,

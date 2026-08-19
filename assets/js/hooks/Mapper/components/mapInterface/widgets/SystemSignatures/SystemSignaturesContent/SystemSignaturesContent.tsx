@@ -1,12 +1,15 @@
 import { PrimeIcons } from 'primereact/api';
 import { Column } from 'primereact/column';
+import { ContextMenu } from 'primereact/contextmenu';
 import {
   DataTable,
   DataTableRowClickEvent,
+  DataTableRowEvent,
   DataTableRowMouseEvent,
   DataTableStateEvent,
   SortOrder,
 } from 'primereact/datatable';
+import { MenuItem } from 'primereact/menuitem';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { SignatureView } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/SignatureView';
@@ -18,8 +21,15 @@ import {
   OTHER_COLUMNS_WIDTH,
 } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants';
 import { SignatureSettings } from '@/hooks/Mapper/components/mapRootContent/components/SignatureSettings';
-import { TooltipPosition, WdTooltip, WdTooltipHandlers, WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit';
+import {
+  TooltipPosition,
+  WdMenuItem,
+  WdTooltip,
+  WdTooltipHandlers,
+  WdTooltipWrapper,
+} from '@/hooks/Mapper/components/ui-kit';
 import { ExtendedSystemSignature, SignatureGroup, SignatureKind, SystemSignature } from '@/hooks/Mapper/types';
+import { ctxManager } from '@/hooks/Mapper/utils/contextManager.ts';
 
 import {
   renderAddedTimeLeft,
@@ -42,6 +52,7 @@ interface SystemSignaturesContentProps {
   selectedSignatures?: ExtendedSystemSignature[];
   onSelectSignatures?: (s: ExtendedSystemSignature[]) => void;
   onDeleteSelected?: () => Promise<void>;
+  onDeleteSignatures?: (sigs: ExtendedSystemSignature[]) => void;
   onSelectAll?: () => void;
   onPaste?: (clipboardString: string) => void;
   settings: SignatureSettingsType;
@@ -58,6 +69,7 @@ export const SystemSignaturesContent = ({
   selectedSignatures,
   onSelectSignatures,
   onDeleteSelected,
+  onDeleteSignatures,
   onSelectAll,
   onPaste,
   settings,
@@ -133,6 +145,51 @@ export const SystemSignaturesContent = ({
     setSelectedSignatureForDialog(e.data as SystemSignature);
     setShowSignatureSettings(true);
   }, []);
+
+  const contextMenuRef = useRef<ContextMenu | null>(null);
+  const contextMenuSignatureRef = useRef<ExtendedSystemSignature | null>(null);
+
+  const handleRowContextMenu = useCallback((e: DataTableRowEvent) => {
+    contextMenuSignatureRef.current = e.data as ExtendedSystemSignature;
+    e.originalEvent.preventDefault();
+    ctxManager.next('ctxSig', contextMenuRef.current);
+    contextMenuRef.current?.show(e.originalEvent);
+  }, []);
+
+  const contextMenuItems = useMemo<MenuItem[]>(
+    () => [
+      {
+        command: () => {
+          const sig = contextMenuSignatureRef.current;
+          if (sig) {
+            setSelectedSignatureForDialog(sig);
+            setShowSignatureSettings(true);
+          }
+          contextMenuSignatureRef.current = null;
+        },
+        template: () => <WdMenuItem icon={PrimeIcons.PENCIL}>Edit</WdMenuItem>,
+      },
+      { separator: true },
+      {
+        command: () => {
+          const sig = contextMenuSignatureRef.current;
+          if (sig) {
+            onDeleteSignatures?.([sig]);
+          }
+          contextMenuSignatureRef.current = null;
+        },
+        template: () => <WdMenuItem icon="text-red-400 pi pi-trash">Delete</WdMenuItem>,
+      },
+    ],
+    [onDeleteSignatures],
+  );
+
+  const handleDeleteSignature = useCallback(
+    (sig: SystemSignature) => {
+      onDeleteSignatures?.([sig as ExtendedSystemSignature]);
+    },
+    [onDeleteSignatures],
+  );
 
   const handleSelectSignatures = useCallback(
     (e: { value: SystemSignature[] }) => {
@@ -266,6 +323,7 @@ export const SystemSignaturesContent = ({
             rowHover
             selectAll
             onRowDoubleClick={handleRowClick}
+            onContextMenu={selectable ? undefined : handleRowContextMenu}
             sortField={settingsSignatures[SETTINGS_KEYS.SORT_FIELD] as string}
             sortOrder={settingsSignatures[SETTINGS_KEYS.SORT_ORDER] as SortOrder}
             onSort={handleSortSettings}
@@ -386,8 +444,11 @@ export const SystemSignaturesContent = ({
           show
           onHide={() => setShowSignatureSettings(false)}
           signatureData={selectedSignatureForDialog || undefined}
+          onDelete={onDeleteSignatures ? handleDeleteSignature : undefined}
         />
       )}
+
+      {!selectable && <ContextMenu className="min-w-[200px]" model={contextMenuItems} ref={contextMenuRef} />}
     </div>
   );
 };

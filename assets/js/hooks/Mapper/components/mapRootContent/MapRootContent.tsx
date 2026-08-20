@@ -18,6 +18,7 @@ import { PingsInterface } from '@/hooks/Mapper/components/mapInterface/component
 import { OldSettingsDialog } from '@/hooks/Mapper/components/mapRootContent/components/OldSettingsDialog.tsx';
 import { TopSearch } from '@/hooks/Mapper/components/mapRootContent/components/TopSearch';
 import { ViewModeSelector } from '@/hooks/Mapper/components/mapRootContent/components/ViewModeSelector';
+import { SubscribeReminderDialog } from '@/hooks/Mapper/components/mapRootContent/components/SubscribeReminderDialog';
 
 export interface MapRootContentProps {}
 
@@ -105,6 +106,8 @@ export const MapRootContent = ({}: MapRootContentProps) => {
           <TrackingDialog visible={showTrackingDialog} onHide={() => setShowTrackingDialog(false)} />
         )}
         <WormholeSignaturesDialog visible={showWormholeList} onHide={() => setShowWormholeList(false)} />
+
+        <SubscribeReminderDialog />
 
         {hasOldSettings && <OldSettingsDialog />}
       </Layout>

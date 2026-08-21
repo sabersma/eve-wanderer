@@ -17,6 +17,7 @@ defmodule WandererApp.Api.Character do
     define(:search_by_name, action: :search_by_name)
     define(:assign_user, action: :assign)
     define(:update, action: :update)
+    define(:update_needs_reauth, action: :update_needs_reauth)
     define(:update_online, action: :update_online)
     define(:update_location, action: :update_location)
     define(:update_ship, action: :update_ship)
@@ -95,9 +96,23 @@ defmodule WandererApp.Api.Character do
 
     update :update do
       require_atomic? false
-      accept([:name, :access_token, :refresh_token, :expires_at, :scopes, :tracking_pool])
+
+      accept([
+        :name,
+        :access_token,
+        :refresh_token,
+        :expires_at,
+        :scopes,
+        :tracking_pool,
+        :needs_reauth
+      ])
 
       change(set_attribute(:deleted, false))
+    end
+
+    update :update_needs_reauth do
+      accept([:needs_reauth])
+      require_atomic? false
     end
 
     update :mark_as_deleted do
@@ -193,6 +208,11 @@ defmodule WandererApp.Api.Character do
     attribute :deleted, :boolean do
       default(false)
       allow_nil?(true)
+    end
+
+    attribute :needs_reauth, :boolean do
+      default(false)
+      allow_nil? false
     end
 
     attribute :scopes, :string

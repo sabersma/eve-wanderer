@@ -73,7 +73,8 @@ defmodule WandererApp.Maps do
           solar_system_id: solar_system_id,
           ship: ship_type_id,
           ship_name: ship_name,
-          inserted_at: inserted_at
+          inserted_at: inserted_at,
+          needs_reauth: needs_reauth
         } =
           _character,
         nil
@@ -91,6 +92,7 @@ defmodule WandererApp.Maps do
         ship: ship_type_id,
         ship_name: ship_name,
         inserted_at: inserted_at,
+        needs_reauth: needs_reauth,
         tracked: false
       }
 
@@ -107,7 +109,8 @@ defmodule WandererApp.Maps do
           solar_system_id: solar_system_id,
           ship: ship_type_id,
           ship_name: ship_name,
-          inserted_at: inserted_at
+          inserted_at: inserted_at,
+          needs_reauth: needs_reauth
         } =
           _character,
         %{tracked: tracked} = _character_settings
@@ -125,6 +128,7 @@ defmodule WandererApp.Maps do
         ship: ship_type_id,
         ship_name: ship_name,
         inserted_at: inserted_at,
+        needs_reauth: needs_reauth,
         tracked: tracked
       }
 

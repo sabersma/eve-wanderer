@@ -5,6 +5,18 @@ defmodule WandererAppWeb.MapCoreEventHandler do
 
   alias WandererAppWeb.{MapEventHandler, MapCharactersEventHandler, MapSystemsEventHandler}
 
+  defp expired_character_eve_ids(map_id, current_user) do
+    case WandererApp.Maps.get_tracked_map_characters(map_id, current_user) do
+      {:ok, tracked_characters} ->
+        tracked_characters
+        |> Enum.filter(&(&1.access_token == nil || Map.get(&1, :needs_reauth, false)))
+        |> Enum.map(& &1.eve_id)
+
+      _ ->
+        []
+    end
+  end
+
   def handle_server_event(:update_permissions, socket) do
     DebounceAndThrottle.Debounce.apply(
       Process,
@@ -15,6 +27,16 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     )
 
     socket
+  end
+
+  def handle_server_event(
+        :character_needs_reauth,
+        %{assigns: %{map_id: map_id, current_user: current_user}} = socket
+      ) do
+    socket
+    |> MapEventHandler.push_map_event("map_updated", %{
+      expired_characters: expired_character_eve_ids(map_id, current_user)
+    })
   end
 
   def handle_server_event(%{event: :acl_members_changed, payload: _payload}, socket) do
@@ -286,8 +308,7 @@ defmodule WandererAppWeb.MapCoreEventHandler do
           {:ok, _} ->
             payload = %{subscribed_system_ids: system_ids, subscription_limit: limit}
 
-            {:reply, payload,
-             socket |> MapEventHandler.push_map_event("map_updated", payload)}
+            {:reply, payload, socket |> MapEventHandler.push_map_event("map_updated", payload)}
 
           error ->
             {:reply, %{error: "update_failed", detail: inspect(error)}, socket}
@@ -696,7 +717,9 @@ defmodule WandererAppWeb.MapCoreEventHandler do
         end
 
       expired_characters =
-        tracked_characters |> Enum.filter(&(&1.access_token == nil)) |> Enum.map(& &1.eve_id)
+        tracked_characters
+        |> Enum.filter(&(&1.access_token == nil || Map.get(&1, :needs_reauth, false)))
+        |> Enum.map(& &1.eve_id)
 
       initial_data =
         %{

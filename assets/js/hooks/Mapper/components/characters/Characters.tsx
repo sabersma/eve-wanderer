@@ -51,7 +51,7 @@ export const Characters = ({ data }: CharactersProps) => {
       >
         <WdTooltipWrapper
           position={TooltipPosition.bottom}
-          content={isExpired ? `Token is expired for ${character.name}` : character.name}
+          content={isExpired ? `${character.name}：授权异常` : character.name}
         >
           <WdCharStateWrapper
             eve_id={character.eve_id}

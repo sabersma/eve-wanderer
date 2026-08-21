@@ -39,7 +39,8 @@ defmodule WandererAppWeb.AuthController do
             refresh_token: auth.credentials.refresh_token,
             expires_at: auth.credentials.expires_at,
             scopes: auth.credentials.scopes,
-            tracking_pool: active_tracking_pool
+            tracking_pool: active_tracking_pool,
+            needs_reauth: false
           }
 
           {:ok, character} =

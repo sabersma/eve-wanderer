@@ -49,6 +49,10 @@ export const useMapUpdated = () => {
       out.subscriptionLimit = props.subscription_limit;
     }
 
+    if ('expired_characters' in props) {
+      out.expiredCharacters = props.expired_characters;
+    }
+
     update(out);
   }, []);
 };

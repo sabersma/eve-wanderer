@@ -204,7 +204,10 @@ defmodule WandererAppWeb.CharactersLive do
     |> maybe_add_wallet_balance(character, can_track_wallet?)
     |> Map.put_new(:ship, WandererApp.Character.get_ship(character))
     |> Map.put_new(:location, WandererApp.Character.get_location(character))
-    |> Map.put_new(:invalid_token, is_nil(character.access_token))
+    |> Map.put_new(
+      :invalid_token,
+      is_nil(character.access_token) || Map.get(character, :needs_reauth, false)
+    )
   end
 
   defp maybe_add_wallet_balance(map, character, true) do

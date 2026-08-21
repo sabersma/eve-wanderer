@@ -208,26 +208,36 @@ export const CharacterCard = ({
     );
   }
 
+  const charState = (
+    <WdCharStateWrapper
+      eve_id={char.eve_id}
+      location={char.location}
+      isExpired={isExpired}
+      isOnline={char.online}
+      isMain={isMain}
+      isFollowing={isFollowing}
+    >
+      <WdEveEntityPortrait
+        eveId={char.eve_id}
+        size={WdEveEntityPortraitSize.w33}
+        className={clsx({
+          ['border-red-600/50']: isExpired,
+        })}
+      />
+    </WdCharStateWrapper>
+  );
+
   return (
     <div className={clsx('w-full text-xs box-border')} onClick={handleSelect}>
       <div className="w-full flex items-center gap-2">
         <div className="flex items-center gap-1">
-          <WdCharStateWrapper
-            eve_id={char.eve_id}
-            location={char.location}
-            isExpired={isExpired}
-            isOnline={char.online}
-            isMain={isMain}
-            isFollowing={isFollowing}
-          >
-            <WdEveEntityPortrait
-              eveId={char.eve_id}
-              size={WdEveEntityPortraitSize.w33}
-              className={clsx({
-                ['border-red-600/50']: isExpired,
-              })}
-            />
-          </WdCharStateWrapper>
+          {isExpired ? (
+            <WdTooltipWrapper position={TooltipPosition.top} content={`${char.name}：授权异常`}>
+              {charState}
+            </WdTooltipWrapper>
+          ) : (
+            charState
+          )}
 
           {showCorporationLogo && (
             <WdTooltipWrapper position={TooltipPosition.top} content={char.corporation_name}>

@@ -37,13 +37,22 @@ defmodule WandererApp.Character.Tracker do
         }
 
   @offline_timeout :timer.minutes(5)
-  @location_error_timeout :timer.seconds(30)
-  @location_error_threshold 3
-  @online_forbidden_ttl :timer.seconds(7)
   @offline_check_delay_ttl :timer.seconds(15)
   @forbidden_ttl :timer.seconds(10)
   @limit_ttl :timer.seconds(5)
   @location_limit_ttl :timer.seconds(1)
+
+  # Backoff for ESI errors during character tracking. Persistent 4xx errors
+  # (invalid token / missing scope / biomassed character) escalate
+  # exponentially per consecutive failure so a broken character stops hammering
+  # ESI and tripping ESI's global 420 error-rate limit (>100 non-2xx/3xx/min).
+  @error_backoff_base :timer.seconds(60)
+  @error_backoff_max :timer.minutes(30)
+  @error_count_ttl :timer.hours(1)
+  # 404 means the character no longer exists in ESI; retrying is pointless.
+  @not_found_ttl :timer.hours(24)
+  # Transient errors (ESI 504) keep a short, non-escalating backoff.
+  @timeout_ttl :timer.seconds(30)
   @pubsub_client Application.compile_env(:wanderer_app, :pubsub_client)
 
   def new(), do: __struct__()
@@ -90,16 +99,68 @@ defmodule WandererApp.Character.Tracker do
     end
   end
 
-  defp increment_location_error_count(character_id) do
-    cache_key = "character:#{character_id}:location_error_count"
+  defp increment_error_count(character_id, endpoint) do
+    cache_key = "character:#{character_id}:#{endpoint}_error_count"
     current_count = WandererApp.Cache.lookup!(cache_key) || 0
     new_count = current_count + 1
-    WandererApp.Cache.put(cache_key, new_count)
+    # TTL keeps the counter from lingering forever; a success resets it via reset_error_count/2.
+    WandererApp.Cache.put(cache_key, new_count, ttl: @error_count_ttl)
     new_count
   end
 
-  defp reset_location_error_count(character_id) do
-    WandererApp.Cache.delete("character:#{character_id}:location_error_count")
+  defp reset_error_count(character_id, endpoint) do
+    WandererApp.Cache.delete("character:#{character_id}:#{endpoint}_error_count")
+  end
+
+  # Exponential backoff: 60s -> 2m -> 4m -> 8m -> 16m -> 30m (cap).
+  defp error_backoff_ttl(error_count) do
+    shifts = min(max(error_count - 1, 0), 5)
+    min(@error_backoff_max, @error_backoff_base * Integer.pow(2, shifts))
+  end
+
+  # Record an error and set the endpoint's forbidden backoff, returning the TTL.
+  defp backoff_forbidden(character_id, endpoint, error_type) do
+    ttl =
+      case error_type do
+        :not_found -> @not_found_ttl
+        :timeout -> @timeout_ttl
+        _ -> error_backoff_ttl(increment_error_count(character_id, endpoint))
+      end
+
+    WandererApp.Cache.put("character:#{character_id}:#{endpoint}_forbidden", true, ttl: ttl)
+
+    # 403 (missing scope) and 404 (character gone) are persistent: surface them
+    # to the user as needing re-authorization instead of silently backing off.
+    if error_type in [:forbidden, :not_found] do
+      set_needs_reauth(character_id, true)
+    end
+
+    ttl
+  end
+
+  # Persist the needs_reauth flag to the DB (and mirror it in the character
+  # cache), skipping the write when the value hasn't changed.
+  defp set_needs_reauth(character_id, value) do
+    case WandererApp.Api.Character.by_id(character_id) do
+      {:ok, %{eve_id: eve_id} = character} ->
+        if character.needs_reauth != value do
+          with {:ok, _} <-
+                 WandererApp.Api.Character.update_needs_reauth(character, %{needs_reauth: value}) do
+            WandererApp.Character.update_character(character_id, %{needs_reauth: value})
+
+            # Notify open map LiveViews (subscribed to "character:#{eve_id}") so the
+            # expired-characters badge refreshes without a full map reload.
+            @pubsub_client.broadcast(
+              WandererApp.PubSub,
+              "character:#{eve_id}",
+              :character_needs_reauth
+            )
+          end
+        end
+
+      _ ->
+        :ok
+    end
   end
 
   def update_settings(character_id, track_settings) do
@@ -158,7 +219,9 @@ defmodule WandererApp.Character.Tracker do
                 if online.online == true && not is_online do
                   WandererApp.Cache.delete("character:#{character_id}:ship_error_time")
                   WandererApp.Cache.delete("character:#{character_id}:location_error_time")
-                  WandererApp.Cache.delete("character:#{character_id}:location_error_count")
+                  reset_error_count(character_id, :location)
+                  reset_error_count(character_id, :ship)
+                  reset_error_count(character_id, :online)
                   WandererApp.Cache.delete("character:#{character_id}:info_forbidden")
                   WandererApp.Cache.delete("character:#{character_id}:ship_forbidden")
                   WandererApp.Cache.delete("character:#{character_id}:location_forbidden")
@@ -167,6 +230,7 @@ defmodule WandererApp.Character.Tracker do
                 end
 
                 WandererApp.Cache.delete("character:#{character_id}:online_error_time")
+                reset_error_count(character_id, :online)
 
                 if online.online != is_online do
                   try do
@@ -206,11 +270,7 @@ defmodule WandererApp.Character.Tracker do
                 :ok
 
               {:error, error} when error in [:forbidden, :not_found, :timeout] ->
-                WandererApp.Cache.put(
-                  "character:#{character_id}:online_forbidden",
-                  true,
-                  ttl: @online_forbidden_ttl
-                )
+                backoff_forbidden(character_id, :online, error)
 
                 if is_nil(
                      WandererApp.Cache.lookup!("character:#{character_id}:online_error_time")
@@ -242,11 +302,7 @@ defmodule WandererApp.Character.Tracker do
                   endpoint: "character_online"
                 )
 
-                WandererApp.Cache.put(
-                  "character:#{character_id}:online_forbidden",
-                  true,
-                  ttl: @online_forbidden_ttl
-                )
+                backoff_forbidden(character_id, :online, error)
 
                 if is_nil(
                      WandererApp.Cache.lookup!("character:#{character_id}:online_error_time")
@@ -390,16 +446,14 @@ defmodule WandererApp.Character.Tracker do
                    character_id: character_id
                  ) do
               {:ok, ship} when is_map(ship) and not is_struct(ship) ->
+                reset_error_count(character_id, :ship)
+
                 character_state |> maybe_update_ship(ship)
 
                 :ok
 
               {:error, error} when error in [:forbidden, :not_found, :timeout] ->
-                WandererApp.Cache.put(
-                  "character:#{character_id}:ship_forbidden",
-                  true,
-                  ttl: @forbidden_ttl
-                )
+                backoff_forbidden(character_id, :ship, error)
 
                 if is_nil(WandererApp.Cache.lookup!("character:#{character_id}:ship_error_time")) do
                   WandererApp.Cache.insert(
@@ -429,11 +483,7 @@ defmodule WandererApp.Character.Tracker do
                   endpoint: "character_ship"
                 )
 
-                WandererApp.Cache.put(
-                  "character:#{character_id}:ship_forbidden",
-                  true,
-                  ttl: @forbidden_ttl
-                )
+                backoff_forbidden(character_id, :ship, error)
 
                 if is_nil(WandererApp.Cache.lookup!("character:#{character_id}:ship_error_time")) do
                   WandererApp.Cache.insert(
@@ -452,11 +502,7 @@ defmodule WandererApp.Character.Tracker do
                   endpoint: "character_ship"
                 )
 
-                WandererApp.Cache.put(
-                  "character:#{character_id}:ship_forbidden",
-                  true,
-                  ttl: @forbidden_ttl
-                )
+                backoff_forbidden(character_id, :ship, :wrong_response)
 
                 if is_nil(WandererApp.Cache.lookup!("character:#{character_id}:ship_error_time")) do
                   WandererApp.Cache.insert(
@@ -501,7 +547,7 @@ defmodule WandererApp.Character.Tracker do
                    character_id: character_id
                  ) do
               {:ok, location} when is_map(location) and not is_struct(location) ->
-                reset_location_error_count(character_id)
+                reset_error_count(character_id, :location)
                 WandererApp.Cache.delete("character:#{character_id}:location_error_time")
 
                 character_state
@@ -510,23 +556,14 @@ defmodule WandererApp.Character.Tracker do
                 :ok
 
               {:error, error} when error in [:forbidden, :not_found, :timeout] ->
-                error_count = increment_location_error_count(character_id)
+                backoff_forbidden(character_id, :location, error)
 
                 Logger.warning("ESI_ERROR: Character location tracking failed",
                   character_id: character_id,
                   tracking_pool: tracking_pool,
                   error_type: error,
-                  error_count: error_count,
                   endpoint: "character_location"
                 )
-
-                if error_count >= @location_error_threshold do
-                  WandererApp.Cache.put(
-                    "character:#{character_id}:location_forbidden",
-                    true,
-                    ttl: @location_error_timeout
-                  )
-                end
 
                 if is_nil(
                      WandererApp.Cache.lookup!("character:#{character_id}:location_error_time")
@@ -551,23 +588,14 @@ defmodule WandererApp.Character.Tracker do
                 {:error, :error_limited}
 
               {:error, error} ->
-                error_count = increment_location_error_count(character_id)
+                backoff_forbidden(character_id, :location, error)
 
                 Logger.error("ESI_ERROR: Character location tracking failed: #{inspect(error)}",
                   character_id: character_id,
                   tracking_pool: tracking_pool,
                   error_type: error,
-                  error_count: error_count,
                   endpoint: "character_location"
                 )
-
-                if error_count >= @location_error_threshold do
-                  WandererApp.Cache.put(
-                    "character:#{character_id}:location_forbidden",
-                    true,
-                    ttl: @location_error_timeout
-                  )
-                end
 
                 if is_nil(
                      WandererApp.Cache.lookup!("character:#{character_id}:location_error_time")
@@ -581,23 +609,14 @@ defmodule WandererApp.Character.Tracker do
                 {:error, :skipped}
 
               _ ->
-                error_count = increment_location_error_count(character_id)
+                backoff_forbidden(character_id, :location, :wrong_response)
 
                 Logger.error("ESI_ERROR: Character location tracking failed - wrong response",
                   character_id: character_id,
                   tracking_pool: tracking_pool,
                   error_type: "wrong_response",
-                  error_count: error_count,
                   endpoint: "character_location"
                 )
-
-                if error_count >= @location_error_threshold do
-                  WandererApp.Cache.put(
-                    "character:#{character_id}:location_forbidden",
-                    true,
-                    ttl: @location_error_timeout
-                  )
-                end
 
                 if is_nil(
                      WandererApp.Cache.lookup!("character:#{character_id}:location_error_time")

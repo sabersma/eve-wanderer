@@ -495,6 +495,13 @@ defmodule WandererApp.Esi.ApiClient do
 
           emit_esi_error(path, :request_failed)
 
+          Logger.error("ESI_REQUEST_FAILED: GET #{path}",
+            method: "GET",
+            path: path,
+            pool: inspect(pool),
+            reason: inspect(reason)
+          )
+
           {:error, "Request failed"}
       end
     rescue
@@ -515,7 +522,13 @@ defmodule WandererApp.Esi.ApiClient do
             pool: inspect(pool)
           )
         else
-          Logger.error(error_msg)
+          Logger.error("ESI_REQUEST_FAILED: GET #{path} raised #{inspect(e)}",
+            method: "GET",
+            path: path,
+            pool: inspect(pool),
+            exception: inspect(e),
+            stacktrace: Exception.format_stacktrace(__STACKTRACE__)
+          )
         end
 
         {:error, "Request failed"}
@@ -595,11 +608,22 @@ defmodule WandererApp.Esi.ApiClient do
           {:error, "Unexpected status: #{status}"}
 
         {:error, reason} ->
+          Logger.error("ESI_REQUEST_FAILED: POST #{url}",
+            method: "POST",
+            path: url,
+            reason: inspect(reason)
+          )
+
           {:error, reason}
       end
     rescue
       e ->
-        @logger.error(Exception.message(e))
+        Logger.error("ESI_REQUEST_FAILED: POST #{url} raised #{inspect(e)}",
+          method: "POST",
+          path: url,
+          exception: inspect(e),
+          stacktrace: Exception.format_stacktrace(__STACKTRACE__)
+        )
 
         {:error, "Request failed"}
     end
@@ -727,6 +751,13 @@ defmodule WandererApp.Esi.ApiClient do
 
           emit_esi_error(url, :request_failed)
 
+          Logger.error("ESI_REQUEST_FAILED: POST_ESI #{url}",
+            method: "POST_ESI",
+            path: url,
+            pool: inspect(pool),
+            reason: inspect(reason)
+          )
+
           {:error, reason}
       end
     rescue
@@ -741,13 +772,19 @@ defmodule WandererApp.Esi.ApiClient do
             %{method: "POST_ESI", path: url, pool: pool}
           )
 
-          @logger.error("FINCH_POOL_EXHAUSTED: #{error_msg}",
+          Logger.error("FINCH_POOL_EXHAUSTED: #{error_msg}",
             method: "POST_ESI",
             path: url,
             pool: inspect(pool)
           )
         else
-          @logger.error(error_msg)
+          Logger.error("ESI_REQUEST_FAILED: POST_ESI #{url} raised #{inspect(e)}",
+            method: "POST_ESI",
+            path: url,
+            pool: inspect(pool),
+            exception: inspect(e),
+            stacktrace: Exception.format_stacktrace(__STACKTRACE__)
+          )
         end
 
         {:error, "Request failed"}

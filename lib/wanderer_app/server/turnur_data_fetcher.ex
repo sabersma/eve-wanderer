@@ -112,8 +112,10 @@ defmodule WandererApp.Server.TurnurDataFetcher do
       {:ok, data} ->
         _cache_items(data)
 
-      _ ->
-        Logger.error("#{__MODULE__} failed to load data")
+      other ->
+        Logger.error("#{__MODULE__} failed to load data",
+          result: inspect(other)
+        )
     end
 
     {:noreply, %{state | task_ref: nil}}
@@ -121,8 +123,11 @@ defmodule WandererApp.Server.TurnurDataFetcher do
 
   # Handle task crash
   @impl true
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{task_ref: ref} = state) do
-    Logger.error("#{__MODULE__} task crashed")
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{task_ref: ref} = state) do
+    Logger.error("#{__MODULE__} task crashed",
+      reason: inspect(reason)
+    )
+
     {:noreply, %{state | task_ref: nil}}
   end
 
@@ -130,19 +135,51 @@ defmodule WandererApp.Server.TurnurDataFetcher do
     do: {:noreply, state}
 
   defp load_data() do
-    case Req.get("#{@eve_scout_base_url}/signatures",
-           params: [system_name: @system_name],
-           retry: false,
-           connect_options: [timeout: 10_000],
-           receive_timeout: 10_000
-         ) do
-      {:ok, %{status: 200, body: body}} ->
-        {:ok, body |> _get_infos()}
+    url = "#{@eve_scout_base_url}/signatures"
 
-      {:error, reason} ->
-        {:error, reason}
+    try do
+      case Req.get(url,
+             params: [system_name: @system_name],
+             retry: false,
+             connect_options: [timeout: 10_000],
+             receive_timeout: 10_000
+           ) do
+        {:ok, %{status: 200, body: body}} ->
+          {:ok, body |> _get_infos()}
 
-      _ ->
+        {:ok, %{status: status} = response} ->
+          Logger.error("#{__MODULE__} request returned unexpected status",
+            url: url,
+            status: status,
+            body: inspect(Map.get(response, :body))
+          )
+
+          {:error, "Unexpected status: #{status}"}
+
+        {:error, reason} ->
+          Logger.error("#{__MODULE__} request failed",
+            url: url,
+            reason: inspect(reason)
+          )
+
+          {:error, reason}
+
+        other ->
+          Logger.error("#{__MODULE__} request returned unexpected result",
+            url: url,
+            result: inspect(other)
+          )
+
+          {:error, "Request failed"}
+      end
+    rescue
+      e ->
+        Logger.error("#{__MODULE__} request raised exception",
+          url: url,
+          exception: inspect(e),
+          stacktrace: Exception.format_stacktrace(__STACKTRACE__)
+        )
+
         {:error, "Request failed"}
     end
   end

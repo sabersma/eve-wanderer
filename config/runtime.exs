@@ -321,7 +321,9 @@ config :wanderer_app, WandererApp.Scheduler,
   jobs:
     [
       {"@daily", {WandererApp.Map.Audit, :archive, []}},
-      {"@daily", {WandererApp.Map.GarbageCollector, :cleanup_chain_passages, []}},
+      # Owns the chain-passage prune as well, so the rollup always commits its buckets
+      # before the raw rows they were built from disappear.
+      {"@daily", {WandererApp.Character.ActivityRollup, :run, []}},
       {"@daily", {WandererApp.Map.GarbageCollector, :cleanup_orphaned_connections, []}},
       {"0 */2 * * *", {WandererApp.Map.GarbageCollector, :cleanup_system_signatures, []}}
     ] ++ sheduler_jobs,

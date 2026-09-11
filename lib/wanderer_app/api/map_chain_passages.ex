@@ -10,6 +10,11 @@ defmodule WandererApp.Api.MapChainPassages do
   postgres do
     repo(WandererApp.Repo)
     table("map_chain_passages_v1")
+
+    custom_indexes do
+      # The 7-day prune and the activity rollup both scan by age across all maps.
+      index [:inserted_at]
+    end
   end
 
   code_interface do

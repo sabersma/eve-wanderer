@@ -767,59 +767,111 @@ defmodule WandererApp.Map do
   @doc """
   Returns the raw activity data that can be processed by WandererApp.Character.Activity.
   Only includes characters that are on the map's ACL.
-  If days parameter is provided, filters activity to that time period.
+
+  `days` picks the reporting tier rather than a plain lookback — see
+  `WandererApp.Character.ActivityRollup.query_window/1`. Raw rows cover the last 7 days;
+  wider ranges are served from the day/month/year buckets the rollup keeps. Exactly one
+  tier is read per call, so counts are never stitched together across granularities.
   """
   def get_character_activity(map_id, days \\ nil) do
     with {:ok, map} <- WandererApp.Api.Map.by_id(map_id) do
       _map_with_acls = Ash.load!(map, :acls)
 
-      # Calculate cutoff date if days is provided
-      cutoff_date =
-        if days, do: DateTime.utc_now() |> DateTime.add(-days * 24 * 3600, :second), else: nil
-
-      # Get activity data
-      passages_activity = get_passages_activity(map_id, cutoff_date)
-      connections_activity = get_connections_activity(map_id, cutoff_date)
-      signatures_activity = get_signatures_activity(map_id, cutoff_date)
-
-      # Return activity data
-      result =
-        passages_activity
-        |> Enum.map(fn passage ->
-          %{
-            character: passage.character,
-            passages: passage.count,
-            connections: Map.get(connections_activity, passage.character.id, 0),
-            signatures: Map.get(signatures_activity, passage.character.id, 0),
-            timestamp: DateTime.utc_now(),
-            character_id: passage.character.id,
-            user_id: passage.character.user_id
-          }
-        end)
-
-      {:ok, result}
+      case WandererApp.Character.ActivityRollup.query_window(days) do
+        {:raw, cutoff} -> raw_character_activity(map_id, cutoff)
+        {granularity, cutoff} -> rollup_character_activity(map_id, granularity, cutoff)
+      end
     end
   end
 
-  defp get_passages_activity(map_id, nil) do
-    # Query all map chain passages without time filter
-    from(p in WandererApp.Api.MapChainPassages,
-      join: c in assoc(p, :character),
-      where: p.map_id == ^map_id,
-      group_by: [c.id],
-      select: {c, count(p.id)}
-    )
-    |> WandererApp.Repo.all()
-    |> Enum.map(fn {character, count} -> %{character: character, count: count} end)
+  defp raw_character_activity(map_id, cutoff) do
+    passages_activity = get_passages_activity(map_id, cutoff)
+    connections_activity = get_connections_activity(map_id, cutoff)
+    signatures_activity = get_signatures_activity(map_id, cutoff)
+
+    # The row set is driven by passages: a character with connections or signatures but no
+    # passage on this map does not appear in the report.
+    {:ok,
+     Enum.map(passages_activity, fn passage ->
+       character = passage.character
+
+       %{
+         character: character,
+         passages: passage.count,
+         connections: Map.get(connections_activity, character.id, 0),
+         signatures: Map.get(signatures_activity, character.id, 0),
+         timestamp: DateTime.utc_now(),
+         character_id: character.id,
+         user_id: character.user_id
+       }
+     end)}
   end
 
-  defp get_passages_activity(map_id, cutoff_date) do
-    # Query map chain passages with time filter
+  defp rollup_character_activity(map_id, granularity, cutoff) do
+    rows =
+      WandererApp.Api.CharacterActivityRollup
+      |> where([r], r.map_id == ^map_id and r.granularity == ^granularity)
+      |> rollup_since(cutoff)
+      |> group_by([r], r.character_id)
+      # Postgres `sum()` over a bigint is a numeric, which Ecto hands back as a `Decimal` —
+      # that would serialise to `"3"` in the API response instead of `3`.
+      |> select([r], {
+        r.character_id,
+        type(sum(r.passages), :integer),
+        type(sum(r.connections), :integer),
+        type(sum(r.signatures), :integer)
+      })
+      |> order_by([r], desc: sum(r.passages))
+      |> WandererApp.Repo.all()
+      # Same row set as the raw tier — passages only.
+      |> Enum.filter(fn {_id, passages, _connections, _signatures} -> passages > 0 end)
+
+    characters = load_activity_characters(Enum.map(rows, &elem(&1, 0)))
+
+    {:ok,
+     Enum.flat_map(rows, fn {character_id, passages, connections, signatures} ->
+       case Map.get(characters, character_id) do
+         nil ->
+           # Character deleted but the FK cascade has not caught up yet.
+           []
+
+         character ->
+           [
+             %{
+               character: character,
+               passages: passages,
+               connections: connections,
+               signatures: signatures,
+               timestamp: DateTime.utc_now(),
+               character_id: character_id,
+               user_id: character.user_id
+             }
+           ]
+       end
+     end)}
+  end
+
+  defp rollup_since(query, nil), do: query
+
+  defp rollup_since(query, cutoff), do: where(query, [r], r.bucket_start >= ^cutoff)
+
+  # Buckets only store ids, but both WandererApp.Character.Activity and the API controller
+  # dereference `character`, so it has to be loaded for bucket-only characters too.
+  defp load_activity_characters([]), do: %{}
+
+  defp load_activity_characters(character_ids) do
+    WandererApp.Api.Character
+    |> where([c], c.id in ^character_ids)
+    |> WandererApp.Repo.all()
+    |> Map.new(&{&1.id, &1})
+  end
+
+  defp get_passages_activity(map_id, cutoff) do
     from(p in WandererApp.Api.MapChainPassages,
       join: c in assoc(p, :character),
       where:
         p.map_id == ^map_id and
-          p.inserted_at > ^cutoff_date,
+          p.inserted_at > ^cutoff,
       group_by: [c.id],
       select: {c, count(p.id)}
     )
@@ -827,29 +879,14 @@ defmodule WandererApp.Map do
     |> Enum.map(fn {character, count} -> %{character: character, count: count} end)
   end
 
-  defp get_connections_activity(map_id, nil) do
-    # Query all connection activity without time filter
-    from(ua in WandererApp.Api.UserActivity,
-      join: c in assoc(ua, :character),
-      where:
-        ua.entity_id == ^map_id and
-          ua.entity_type == :map and
-          ua.event_type == :map_connection_added,
-      group_by: [c.id],
-      select: {c.id, count(ua.id)}
-    )
-    |> WandererApp.Repo.all()
-    |> Map.new()
-  end
-
-  defp get_connections_activity(map_id, cutoff_date) do
+  defp get_connections_activity(map_id, cutoff) do
     from(ua in WandererApp.Api.UserActivity,
       join: c in assoc(ua, :character),
       where:
         ua.entity_id == ^map_id and
           ua.entity_type == :map and
           ua.event_type == :map_connection_added and
-          ua.inserted_at > ^cutoff_date,
+          ua.inserted_at > ^cutoff,
       group_by: [c.id],
       select: {c.id, count(ua.id)}
     )
@@ -857,28 +894,14 @@ defmodule WandererApp.Map do
     |> Map.new()
   end
 
-  defp get_signatures_activity(map_id, nil) do
-    # Query all signature activity without time filter
-    from(ua in WandererApp.Api.UserActivity,
-      join: c in assoc(ua, :character),
-      where:
-        ua.entity_id == ^map_id and
-          ua.entity_type == :map and
-          ua.event_type == :signatures_added,
-      select: {ua.character_id, ua.event_data}
-    )
-    |> WandererApp.Repo.all()
-    |> process_signatures_data()
-  end
-
-  defp get_signatures_activity(map_id, cutoff_date) do
+  defp get_signatures_activity(map_id, cutoff) do
     from(ua in WandererApp.Api.UserActivity,
       join: c in assoc(ua, :character),
       where:
         ua.entity_id == ^map_id and
           ua.entity_type == :map and
           ua.event_type == :signatures_added and
-          ua.inserted_at > ^cutoff_date,
+          ua.inserted_at > ^cutoff,
       select: {ua.character_id, ua.event_data}
     )
     |> WandererApp.Repo.all()
@@ -895,14 +918,21 @@ defmodule WandererApp.Map do
   defp process_character_signatures({character_id, activities}) do
     signature_count =
       activities
-      |> Enum.map(fn {_, event_data} ->
-        case Jason.decode(event_data) do
-          {:ok, data} -> length(Map.get(data, "signatures", []))
-          _ -> 0
-        end
-      end)
+      |> Enum.map(fn {_, event_data} -> count_signatures(event_data) end)
       |> Enum.sum()
 
     {character_id, signature_count}
   end
+
+  # `event_data` is nullable, and a batch of signatures is counted by its length rather
+  # than as a single row.
+  defp count_signatures(event_data) when is_binary(event_data) do
+    with {:ok, %{"signatures" => signatures}} when is_list(signatures) <- Jason.decode(event_data) do
+      length(signatures)
+    else
+      _ -> 0
+    end
+  end
+
+  defp count_signatures(_), do: 0
 end

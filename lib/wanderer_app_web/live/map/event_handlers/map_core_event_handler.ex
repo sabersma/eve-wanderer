@@ -457,10 +457,10 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     end
   end
 
-  # Subscription limits per role: admin/manager unlimited (nil), member 3, viewer 1.
+  # Subscription limits per role: admin/manager unlimited (nil), member 5, viewer 1.
   defp subscription_limit(%{admin_map: true}), do: nil
   defp subscription_limit(%{manage_map: true}), do: nil
-  defp subscription_limit(%{add_system: true}), do: 3
+  defp subscription_limit(%{add_system: true}), do: 5
   defp subscription_limit(_), do: 1
 
   defp maybe_add_subscribed_systems(_map_id, [], _user_id, _character_id), do: :ok

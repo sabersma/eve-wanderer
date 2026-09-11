@@ -14,7 +14,7 @@ interface SearchResult {
  *
  * - admin/manager keep a "全局 / 订阅" toggle (global view + unlimited subs).
  * - member/viewer only get the subscription view: type a system name/code to
- *   subscribe (limits: member ≤3, viewer ≤1), remove to unsubscribe.
+ *   subscribe (limits: member ≤5, viewer ≤1), remove to unsubscribe.
  */
 export const ViewModeSelector = () => {
   const { data, update, outCommand } = useMapRootState();

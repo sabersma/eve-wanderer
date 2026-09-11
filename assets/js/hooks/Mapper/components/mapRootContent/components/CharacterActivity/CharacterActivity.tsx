@@ -9,14 +9,23 @@ interface CharacterActivityProps {
   onHide: () => void;
 }
 
-const periodOptions = [
-  { value: 30, label: '30 Days' },
+/**
+ * One entry per rollup tier, mirroring WandererApp.Character.ActivityRollup.query_window/1:
+ * 7 days reads the raw rows, 90 the day buckets, 365 the month buckets and all time the
+ * year buckets. Mirroring the tiers exactly is the point — every option lands on one
+ * source, so no range is ever stitched together from two granularities.
+ */
+export const periodOptions = [
+  { value: 7, label: '7 Days' },
+  { value: 90, label: '90 Days' },
   { value: 365, label: '1 Year' },
   { value: null, label: 'All Time' },
 ];
 
+export const DEFAULT_ACTIVITY_PERIOD = 7;
+
 export const CharacterActivity = ({ visible, onHide }: CharacterActivityProps) => {
-  const [selectedPeriod, setSelectedPeriod] = useState<number | null>(30);
+  const [selectedPeriod, setSelectedPeriod] = useState<number | null>(DEFAULT_ACTIVITY_PERIOD);
   const menuRef = useRef<Menu>(null);
 
   const handlePeriodChange = useCallback((days: number | null) => {

@@ -7,6 +7,7 @@ import { OutCommand } from '@/hooks/Mapper/types';
 import { MenuItem } from 'primereact/menuitem';
 import { useMapCheckPermissions } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 import { UserPermission } from '@/hooks/Mapper/types/permissions.ts';
+import { DEFAULT_ACTIVITY_PERIOD } from '@/hooks/Mapper/components/mapRootContent/components/CharacterActivity';
 
 export interface MapContextMenuProps {
   onShowOnTheMap?: () => void;
@@ -33,7 +34,9 @@ export const MapContextMenu = ({
   const handleShowActivity = useCallback(() => {
     outCommand({
       type: OutCommand.showActivity,
-      data: {},
+      // Same range the dialog opens on, so showing it does not kick off a second,
+      // different one on top of this request.
+      data: { days: DEFAULT_ACTIVITY_PERIOD },
     });
   }, [outCommand]);
 

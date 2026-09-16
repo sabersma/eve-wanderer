@@ -87,9 +87,30 @@ config :ash_pagify,
   table: [opts: {WandererAppWeb.CoreComponents, :table_opts}]
 
 # Configures Elixir's Logger
+# `:metadata` is an allow-list: `$metadata` only renders the keys listed here,
+# so any metadata passed to a Logger call must be added below to be visible.
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:application, :module, :function, :line, :request_id]
+  metadata: [
+    :application,
+    :module,
+    :function,
+    :line,
+    :request_id,
+    # ESI / OAuth token diagnostics (ApiClient, Tracker)
+    :character_id,
+    :error,
+    :error_message,
+    :error_type,
+    :time_since_expiry_seconds,
+    :original_expires_at,
+    :new_expires_at,
+    :path,
+    :method,
+    :pool,
+    :endpoint,
+    :exception
+  ]
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason

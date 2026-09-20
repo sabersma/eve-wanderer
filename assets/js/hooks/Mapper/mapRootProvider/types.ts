@@ -110,6 +110,43 @@ export type WdResponse<T> = T;
 
 export type RemoteAdminSettingsResponse = { default_settings?: string };
 
+/**
+ * Settings stored per user on the server, updated with
+ * OutCommand.updateUserSettings. Lives in the root store because the map reads
+ * them while rendering — the subscription view's hide mode has to be known
+ * before the settings dialog is ever opened.
+ */
+export type UserRemoteSettings = {
+  link_signature_on_splash: boolean;
+  select_on_spash: boolean;
+  delete_connection_with_sigs: boolean;
+  /**
+   * Subscription view only. false shows every cluster the user can see; true
+   * restricts the view to clusters reachable from a subscribed system and
+   * blocks adding systems outside them.
+   */
+  hide_unsubscribed_clusters: boolean;
+};
+
+export const INITIAL_USER_REMOTE_SETTINGS: UserRemoteSettings = {
+  link_signature_on_splash: false,
+  select_on_spash: false,
+  delete_connection_with_sigs: false,
+  hide_unsubscribed_clusters: false,
+};
+
+/**
+ * A subscribed system with the name the server resolved for it. Sent alongside
+ * `subscribed_system_ids` because a subscribed system is not necessarily on the
+ * map yet — there is no map record to read a name from, and the subscription
+ * chip would otherwise have to show the raw numeric id. `name` is null when the
+ * server could not resolve one (unknown system id).
+ */
+export type SubscribedSystem = {
+  id: string;
+  name: string | null;
+};
+
 export enum SettingsTypes {
   killsWidget = 'killsWidget',
   localWidget = 'localWidget',

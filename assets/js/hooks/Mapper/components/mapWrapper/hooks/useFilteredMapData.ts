@@ -1,49 +1,7 @@
 import { useMemo } from 'react';
 import { SolarSystemConnection, SolarSystemRawType } from '@/hooks/Mapper/types';
 import type { ViewMode } from '@/hooks/Mapper/mapRootProvider';
-
-/**
- * Build an adjacency list from connections for BFS traversal.
- * Each system ID maps to a Set of connected system IDs.
- */
-function buildAdjacencyList(connections: SolarSystemConnection[]): Map<string, Set<string>> {
-  const adj = new Map<string, Set<string>>();
-  for (const conn of connections) {
-    if (!adj.has(conn.source)) adj.set(conn.source, new Set());
-    if (!adj.has(conn.target)) adj.set(conn.target, new Set());
-    adj.get(conn.source)!.add(conn.target);
-    adj.get(conn.target)!.add(conn.source);
-  }
-  return adj;
-}
-
-/**
- * BFS from all seed nodes, traversing through the adjacency list.
- * Returns the set of all reachable system IDs.
- */
-function bfsReachable(seeds: string[], adjacency: Map<string, Set<string>>): Set<string> {
-  const visited = new Set<string>();
-  const queue: string[] = [...seeds];
-
-  for (const seed of seeds) {
-    visited.add(seed);
-  }
-
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    const neighbors = adjacency.get(current);
-    if (!neighbors) continue;
-
-    for (const neighbor of neighbors) {
-      if (!visited.has(neighbor)) {
-        visited.add(neighbor);
-        queue.push(neighbor);
-      }
-    }
-  }
-
-  return visited;
-}
+import { bfsReachable, buildAdjacencyList } from '@/hooks/Mapper/helpers/graph.ts';
 
 /**
  * Pure helper that computes the set of visible system ids for the current view.
@@ -53,6 +11,11 @@ function bfsReachable(seeds: string[], adjacency: Map<string, Set<string>>): Set
  * - 'all' mode → every system.
  * - subscription view with no subscription → empty (nothing rendered).
  * - otherwise → BFS from subscribed systems + my characters' current systems.
+ *
+ * `hideUnsubscribed` narrows the subscription view to clusters reachable from a
+ * subscribed system. It deliberately drops both of the other seed sources:
+ * a character standing in a cluster the user has not subscribed to is exactly
+ * what the mode is meant to hide, so their own character's systems go too.
  */
 export function computeVisibleSystemIds(
   systems: SolarSystemRawType[],
@@ -61,6 +24,7 @@ export function computeVisibleSystemIds(
   subscribedSystemIds: string[],
   myCharSystemIds: string[],
   manuallyAddedSystemIds: string[],
+  hideUnsubscribed = false,
 ): Set<string> {
   if (viewMode === 'all') {
     return new Set(systems.map(s => s.id));
@@ -71,9 +35,11 @@ export function computeVisibleSystemIds(
     return new Set();
   }
 
-  const seeds = [...new Set([...subscribedSystemIds, ...myCharSystemIds])].filter(id =>
-    systems.some(s => s.id === id),
-  );
+  const seedIds = hideUnsubscribed
+    ? subscribedSystemIds
+    : [...new Set([...subscribedSystemIds, ...myCharSystemIds])];
+
+  const seeds = [...new Set(seedIds)].filter(id => systems.some(s => s.id === id));
 
   if (seeds.length === 0) {
     return new Set();
@@ -81,6 +47,15 @@ export function computeVisibleSystemIds(
 
   const adjacency = buildAdjacencyList(connections);
   const visibleSystemIds = bfsReachable(seeds, adjacency);
+
+  if (hideUnsubscribed) {
+    // Nothing outside the subscribed clusters is added back, not even systems
+    // this user manually added: the whole point of the mode is that only
+    // subscribed territory is on screen. The add path refuses to create new
+    // ones, so a manually added system that is disconnected can only be a
+    // leftover from before the mode was switched on.
+    return visibleSystemIds;
+  }
 
   // Keep isolated systems (no connections) visible only if the current user
   // manually added them, so a freshly right-click-added system can be wired up
@@ -116,6 +91,7 @@ export function useFilteredMapData(
   subscribedSystemIds: string[],
   myCharSystemIds: string[],
   manuallyAddedSystemIds: string[],
+  hideUnsubscribed = false,
 ): FilteredMapData {
   return useMemo(() => {
     const visibleSystemIds = computeVisibleSystemIds(
@@ -125,6 +101,7 @@ export function useFilteredMapData(
       subscribedSystemIds,
       myCharSystemIds,
       manuallyAddedSystemIds,
+      hideUnsubscribed,
     );
 
     const filteredSystems = systems.filter(s => visibleSystemIds.has(s.id));
@@ -137,5 +114,13 @@ export function useFilteredMapData(
       connections: filteredConnections,
       visibleSystemIds,
     };
-  }, [systems, connections, viewMode, subscribedSystemIds, myCharSystemIds, manuallyAddedSystemIds]);
+  }, [
+    systems,
+    connections,
+    viewMode,
+    subscribedSystemIds,
+    myCharSystemIds,
+    manuallyAddedSystemIds,
+    hideUnsubscribed,
+  ]);
 }

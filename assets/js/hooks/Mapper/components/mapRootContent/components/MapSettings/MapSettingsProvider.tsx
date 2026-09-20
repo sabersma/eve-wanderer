@@ -7,17 +7,9 @@ import {
   useContext,
   useMemo,
   useRef,
-  useState,
 } from 'react';
-import {
-  SettingsListItem,
-  UserSettings,
-  UserSettingsRemote,
-} from '@/hooks/Mapper/components/mapRootContent/components/MapSettings/types.ts';
-import {
-  DEFAULT_REMOTE_SETTINGS,
-  UserSettingsRemoteList,
-} from '@/hooks/Mapper/components/mapRootContent/components/MapSettings/constants.ts';
+import { SettingsListItem, UserSettings, UserSettingsRemote } from '@/hooks/Mapper/components/mapRootContent/components/MapSettings/types.ts';
+import { UserSettingsRemoteList } from '@/hooks/Mapper/components/mapRootContent/components/MapSettings/constants.ts';
 import { OutCommand } from '@/hooks/Mapper/types';
 import { PrettySwitchbox } from '@/hooks/Mapper/components/mapRootContent/components/MapSettings/components';
 import { Dropdown } from 'primereact/dropdown';
@@ -34,12 +26,26 @@ const MapSettingsContext = createContext<MapSettingsContextType | undefined>(und
 export const MapSettingsProvider = ({ children }: WithChildren) => {
   const {
     outCommand,
+    update,
+    data: { userRemoteSettings },
     storedSettings: { interfaceSettings, setInterfaceSettings },
   } = useMapRootState();
 
-  const [userRemoteSettings, setUserRemoteSettings] = useState<UserSettingsRemote>({
-    ...DEFAULT_REMOTE_SETTINGS,
-  });
+  // The remote settings live in the root store, not in local state here: the
+  // map's own visibility rule reads `hide_unsubscribed_clusters`, and this
+  // provider sits below the component that computes it. Keeping a second copy
+  // here would let the dialog show one value while the map used another.
+  const setUserRemoteSettings = useCallback<Dispatch<SetStateAction<UserSettingsRemote>>>(
+    value => {
+      update(prev => ({
+        userRemoteSettings:
+          typeof value === 'function'
+            ? (value as (prev: UserSettingsRemote) => UserSettingsRemote)(prev.userRemoteSettings)
+            : value,
+      }));
+    },
+    [update],
+  );
 
   const mergedSettings: UserSettings = useMemo(() => {
     return {
@@ -48,11 +54,26 @@ export const MapSettingsProvider = ({ children }: WithChildren) => {
     };
   }, [userRemoteSettings, interfaceSettings]);
 
-  const refVars = useRef({ mergedSettings, userRemoteSettings, interfaceSettings, outCommand, setInterfaceSettings });
-  refVars.current = { mergedSettings, userRemoteSettings, interfaceSettings, outCommand, setInterfaceSettings };
+  const refVars = useRef({
+    mergedSettings,
+    userRemoteSettings,
+    interfaceSettings,
+    outCommand,
+    setInterfaceSettings,
+    setUserRemoteSettings,
+  });
+  refVars.current = {
+    mergedSettings,
+    userRemoteSettings,
+    interfaceSettings,
+    outCommand,
+    setInterfaceSettings,
+    setUserRemoteSettings,
+  };
 
   const handleSettingChange = useCallback(async (prop: keyof UserSettings, value: boolean | string) => {
-    const { userRemoteSettings, interfaceSettings, outCommand, setInterfaceSettings } = refVars.current;
+    const { userRemoteSettings, interfaceSettings, outCommand, setInterfaceSettings, setUserRemoteSettings } =
+      refVars.current;
 
     if (UserSettingsRemoteList.includes(prop as any)) {
       const newRemoteSettings = {

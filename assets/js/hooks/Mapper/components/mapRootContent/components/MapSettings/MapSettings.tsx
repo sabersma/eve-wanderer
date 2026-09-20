@@ -4,7 +4,12 @@ import { useCallback, useRef, useState } from 'react';
 import { TabPanel, TabView } from 'primereact/tabview';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { OutCommand, UserPermission } from '@/hooks/Mapper/types';
-import { CONNECTIONS_CHECKBOXES_PROPS, SIGNATURES_CHECKBOXES_PROPS, SYSTEMS_CHECKBOXES_PROPS } from './constants.ts';
+import {
+  CONNECTIONS_CHECKBOXES_PROPS,
+  DEFAULT_REMOTE_SETTINGS,
+  SIGNATURES_CHECKBOXES_PROPS,
+  SYSTEMS_CHECKBOXES_PROPS,
+} from './constants.ts';
 import {
   MapSettingsProvider,
   useMapSettings,
@@ -39,7 +44,10 @@ export const MapSettingsComp = ({ visible, onHide }: MapSettingsProps) => {
       type: OutCommand.getUserSettings,
       data: null,
     });
+    // Merged over the defaults: a setting added after this user's row was
+    // written has no key in the stored JSON, and must not come back undefined.
     setUserRemoteSettings({
+      ...DEFAULT_REMOTE_SETTINGS,
       ...user_settings,
     });
   }, [setUserRemoteSettings]);

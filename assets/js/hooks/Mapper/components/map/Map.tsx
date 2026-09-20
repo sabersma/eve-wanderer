@@ -21,6 +21,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import classes from './Map.module.scss';
+import { MapOverlapProvider } from './MapOverlapProvider';
 import { MapProvider, useMapState } from './MapProvider';
 import {
   ContextMenuConnection,
@@ -95,6 +96,8 @@ interface MapCompProps {
   visibleSystemIds?: Set<string>;
   layoutPositions?: LayoutPositions | null;
   viewMode?: ViewMode;
+  /** Set when the current view has nowhere to put a new system. */
+  addSystemBlockedReason?: string | null;
 }
 
 const MapComp = ({
@@ -120,6 +123,7 @@ const MapComp = ({
   visibleSystemIds,
   layoutPositions,
   viewMode = 'all',
+  addSystemBlockedReason = null,
 }: MapCompProps) => {
   const { getNodes, setViewport } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<SolarSystemRawType>>(initialNodes);
@@ -128,43 +132,62 @@ const MapComp = ({
   useMapHandlers(refn, onSelectionChange, layoutPositions ?? null, viewMode);
   useUpdateNodes(nodes);
 
-  const { handleRootContext, ...rootCtxProps } = useContextMenuRootHandlers({ onAddSystem, onCommand });
+  const { handleRootContext, ...rootCtxProps } = useContextMenuRootHandlers({
+    onAddSystem,
+    onCommand,
+    addSystemBlockedReason,
+  });
   const { handleConnectionContext, ...connectionCtxProps } = useContextMenuConnectionHandlers();
   const { update } = useMapState();
   const { variant, gap, size, color } = useBackgroundVars(theme);
   const { isPanAndDrag, nodeComponent, connectionMode } = getBehaviorForTheme(theme || 'default');
 
-  // Apply per-view layout positions when the layout changes (view switch).
-  // Manual drags during a view are driven by ReactFlow's own node state and are
-  // not overwritten here because layoutPositions only changes on view switch.
+  // Apply per-view layout positions when the layout changes (view switch, or a
+  // local layout change in a subscription view).
+  //
+  // Two guards keep this from disturbing the view:
+  //  - a node being dragged right now is left alone, so a server push arriving
+  //    mid-drag cannot yank it out from under the cursor;
+  //  - a node whose position already matches keeps its object identity, so
+  //    ReactFlow does not re-render it. Without this every server push would
+  //    rebuild every node, which re-renders the node components (and would make
+  //    the overlap badge flicker).
   useEffect(() => {
     if (!layoutPositions) return;
-    setNodes(prev => prev.map(n => {
-      const pos = layoutPositions[n.id];
-      return pos ? { ...n, position: pos } : n;
-    }));
+    setNodes(prev =>
+      prev.map(n => {
+        const pos = layoutPositions[n.id];
+        if (!pos || n.dragging) return n;
+        if (n.position.x === pos.x && n.position.y === pos.y) return n;
+        return { ...n, position: pos };
+      }),
+    );
   }, [layoutPositions, setNodes]);
 
   // Apply view-mode filtering: visibility via the hidden property, and in the
   // subscription view make locked systems draggable (a drag only affects the
   // per-user local layout, so it is safe). Locked systems stay non-deletable.
+  // Identity is preserved for nodes whose flags do not change — see above.
   const displayNodes = useMemo(() => {
     let base = nodes;
 
     if (viewMode === 'home') {
-      base = nodes.map(n => ({ ...n, draggable: true }));
+      base = nodes.map(n => (n.draggable ? n : { ...n, draggable: true }));
     }
 
     if (!visibleSystemIds) return base;
-    return base.map(n => ({ ...n, hidden: !visibleSystemIds.has(n.id) }));
+    return base.map(n => {
+      const hidden = !visibleSystemIds.has(n.id);
+      return n.hidden === hidden ? n : { ...n, hidden };
+    });
   }, [nodes, visibleSystemIds, viewMode]);
 
   const displayEdges = useMemo(() => {
     if (!visibleSystemIds) return edges;
-    return edges.map(e => ({
-      ...e,
-      hidden: !visibleSystemIds.has(e.source) || !visibleSystemIds.has(e.target),
-    }));
+    return edges.map(e => {
+      const hidden = !visibleSystemIds.has(e.source) || !visibleSystemIds.has(e.target);
+      return e.hidden === hidden ? e : { ...e, hidden };
+    });
   }, [edges, visibleSystemIds]);
 
   const refVars = useRef({ onChangeViewport });
@@ -188,16 +211,24 @@ const MapComp = ({
     [onCommand],
   );
 
+  // `node` is only the one under the pointer, `draggedNodes` is everything the
+  // drag actually moved — and a drag that starts on one node of a multi
+  // selection moves the whole selection. Persisting just `node` leaves the rest
+  // unsaved, so the next layout update snaps them back to their stored position:
+  // the cluster jumps apart the moment the mouse is released. ReactFlow only
+  // routes a selection drag to `handleSelectionDragStop` when the drag started
+  // on the selection itself, so this path has to carry the whole list.
   const handleDragStop: NodeDragHandler = useCallback(
-    (_, node) => [
-      // eslint-disable-next-line no-console
+    (_, node, draggedNodes) => {
+      const moved = draggedNodes?.length ? draggedNodes : [node];
+
       setTimeout(() => {
         onCommand({
-          type: OutCommand.updateSystemPosition,
-          data: { solar_system_id: node.id, position: node.position },
+          type: OutCommand.updateSystemPositions,
+          data: moved.map(x => ({ solar_system_id: x.id, position: x.position })),
         });
-      }, 500),
-    ],
+      }, 500);
+    },
     [onCommand],
   );
 
@@ -276,66 +307,68 @@ const MapComp = ({
         data-window-id={MAP_ROOT_ID}
         className={clsx(classes.MapRoot, { [classes.BackgroundAlternateColor]: isSoftBackground })}
       >
-        <ReactFlow
-          nodes={displayNodes}
-          edges={displayEdges}
-          onNodesChange={handleNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          // TODO we need save into session all of this
-          //      and on any action do either
-          defaultViewport={defaultViewport}
-          edgeTypes={edgeTypes}
-          nodeTypes={nodeTypes}
-          connectionMode={connectionMode}
-          snapToGrid
-          nodeDragThreshold={10}
-          onNodeDragStop={handleDragStop}
-          onSelectionDragStop={handleSelectionDragStop}
-          onConnectStart={() => update({ isConnecting: true })}
-          onConnectEnd={() => update({ isConnecting: false })}
-          onNodeMouseEnter={(_, node) => update({ hoverNodeId: node.id })}
-          onPaneClick={event => {
-            event.preventDefault();
-            event.stopPropagation();
-          }}
-          // onKeyUp=
-          onNodeMouseLeave={() => update({ hoverNodeId: null })}
-          onEdgeClick={(_, t) => {
-            onConnectionInfoClick?.(t.data);
-          }}
-          onEdgeContextMenu={handleConnectionContext}
-          onNodeContextMenu={(ev, node) => onSystemContextMenu(ev, node.id)}
-          // TODO don't know why this error appear - but it annoying
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-          // @ts-expect-error
-          onPaneContextMenu={handleRootContext}
-          onSelectionContextMenu={(ev, nodes) => onSelectionContextMenu?.(ev, nodes)}
-          onSelectionChange={handleSelectionChange} // TODO - somewhy calling 2 times. don't know why
-          // onSelectionEnd={handleSelectionChange}
-          onMoveStart={resetContexts}
-          onMouseDown={resetContexts}
-          onMoveEnd={handleMoveEnd}
-          minZoom={0.2}
-          maxZoom={1.5}
-          elevateNodesOnSelect
-          deleteKeyCode={['']}
-          {...(isPanAndDrag
-            ? {
-                selectionOnDrag: true,
-                panOnDrag: [2],
-              }
-            : {})}
-          // TODO need create clear example with problem with that flag
-          //  if system is not visible edge not drawing (and any render in Custom node is not happening)
-          // onlyRenderVisibleElements
-          selectionMode={SelectionMode.Partial}
-        >
-          {isShowMinimap && (
-            <MiniMap pannable zoomable ariaLabel="Mini map" className={minimapClasses} position={minimapPlacement} />
-          )}
-          {isShowBackgroundPattern && <Background variant={variant} gap={gap} size={size} color={color} />}
-        </ReactFlow>
+        <MapOverlapProvider nodes={displayNodes}>
+          <ReactFlow
+            nodes={displayNodes}
+            edges={displayEdges}
+            onNodesChange={handleNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            // TODO we need save into session all of this
+            //      and on any action do either
+            defaultViewport={defaultViewport}
+            edgeTypes={edgeTypes}
+            nodeTypes={nodeTypes}
+            connectionMode={connectionMode}
+            snapToGrid
+            nodeDragThreshold={10}
+            onNodeDragStop={handleDragStop}
+            onSelectionDragStop={handleSelectionDragStop}
+            onConnectStart={() => update({ isConnecting: true })}
+            onConnectEnd={() => update({ isConnecting: false })}
+            onNodeMouseEnter={(_, node) => update({ hoverNodeId: node.id })}
+            onPaneClick={event => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            // onKeyUp=
+            onNodeMouseLeave={() => update({ hoverNodeId: null })}
+            onEdgeClick={(_, t) => {
+              onConnectionInfoClick?.(t.data);
+            }}
+            onEdgeContextMenu={handleConnectionContext}
+            onNodeContextMenu={(ev, node) => onSystemContextMenu(ev, node.id)}
+            // TODO don't know why this error appear - but it annoying
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-expect-error
+            onPaneContextMenu={handleRootContext}
+            onSelectionContextMenu={(ev, nodes) => onSelectionContextMenu?.(ev, nodes)}
+            onSelectionChange={handleSelectionChange} // TODO - somewhy calling 2 times. don't know why
+            // onSelectionEnd={handleSelectionChange}
+            onMoveStart={resetContexts}
+            onMouseDown={resetContexts}
+            onMoveEnd={handleMoveEnd}
+            minZoom={0.2}
+            maxZoom={1.5}
+            elevateNodesOnSelect
+            deleteKeyCode={['']}
+            {...(isPanAndDrag
+              ? {
+                  selectionOnDrag: true,
+                  panOnDrag: [2],
+                }
+              : {})}
+            // TODO need create clear example with problem with that flag
+            //  if system is not visible edge not drawing (and any render in Custom node is not happening)
+            // onlyRenderVisibleElements
+            selectionMode={SelectionMode.Partial}
+          >
+            {isShowMinimap && (
+              <MiniMap pannable zoomable ariaLabel="Mini map" className={minimapClasses} position={minimapPlacement} />
+            )}
+            {isShowBackgroundPattern && <Background variant={variant} gap={gap} size={size} color={color} />}
+          </ReactFlow>
+        </MapOverlapProvider>
         {/* <button className="z-auto btn btn-primary absolute top-20 right-20" onClick={handleGetPassages}>
           Test // DON NOT REMOVE
         </button> */}

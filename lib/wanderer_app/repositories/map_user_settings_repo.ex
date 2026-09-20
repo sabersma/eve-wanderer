@@ -5,6 +5,10 @@ defmodule WandererApp.MapUserSettingsRepo do
     "select_on_spash" => false,
     "link_signature_on_splash" => false,
     "delete_connection_with_sigs" => false,
+    # Subscription view only. false = show every cluster the user can see
+    # (the original behaviour); true = only clusters reachable from the
+    # systems they subscribe to.
+    "hide_unsubscribed_clusters" => false,
     "primary_character_id" => nil
   }
 

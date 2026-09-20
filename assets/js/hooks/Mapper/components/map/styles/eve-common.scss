@@ -542,6 +542,23 @@
   background-color: #d10600;
 }
 
+/* Overlapping-system warning. Kept distinct from the red/orange activity
+   markers so a stacked node never reads as "recent kills". */
+.wd-marker-bookmark-color-overlap {
+  background-color: #c026d3;
+  animation: wd-overlap-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes wd-overlap-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
 
 .react-flow__minimap-node {
   fill: #ffb03a;

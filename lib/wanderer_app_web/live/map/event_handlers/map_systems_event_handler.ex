@@ -100,6 +100,39 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
   def handle_server_event(event, socket),
     do: MapCoreEventHandler.handle_server_event(event, socket)
 
+  # Refused while the user has chosen to hide unsubscribed clusters: the new
+  # system would either be invisible immediately, or — if it is not connected to
+  # a subscribed cluster — never appear at all, which reads as the add having
+  # silently failed. The menu item is disabled in that mode too; this is the
+  # check on the side that actually writes, so a stale client cannot get past it.
+  #
+  # The setting is a property of the subscription view, so the client reports
+  # the view it is in and a global-view add is not refused: every system is on
+  # screen there, which is the premise this refusal rests on. An older client
+  # sends no view mode and gets the refusal — that is the safe default, and the
+  # clause below is what picks it up.
+  #
+  # These clauses have to come first: they match a subset of what the clauses
+  # further down match, so order is what decides which one wins.
+  def handle_ui_event(
+        "manual_add_system",
+        %{"view_mode" => "home"},
+        %{assigns: %{hide_unsubscribed_clusters?: true, user_permissions: %{add_system: true}}} =
+          socket
+      ) do
+    refuse_add_system(socket)
+  end
+
+  def handle_ui_event(
+        "manual_add_system",
+        event,
+        %{assigns: %{hide_unsubscribed_clusters?: true, user_permissions: %{add_system: true}}} =
+          socket
+      )
+      when is_map(event) and not is_map_key(event, "view_mode") do
+    refuse_add_system(socket)
+  end
+
   def handle_ui_event(
         "manual_add_system",
         %{"solar_system_id" => solar_system_id, "coordinates" => coordinates} = _event,
@@ -401,6 +434,18 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
       class_title: class_title,
       system_static_info: system_static_info
     }
+  end
+
+  defp refuse_add_system(socket) do
+    # The message is user-facing: it lands in a toast through the frontend's
+    # `map_error` handler. Chinese, and worded exactly like the frontend's own
+    # hint for this same condition, so the user reads one sentence whichever
+    # layer turned the add down. `error` stays a machine-readable code.
+    {:noreply,
+     MapEventHandler.push_map_event(socket, "map_error", %{
+       error: "unsubscribed_clusters_hidden",
+       message: "隐藏模式下不可添加星系，请先切换为「显示」"
+     })}
   end
 
   defp record_manual_add(socket, map_id, current_user_id, solar_system_id) do

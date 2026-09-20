@@ -13,6 +13,11 @@ export interface ContextMenuRootProps {
   pasteSystemsAndConnections: PasteSystemsAndConnections | undefined;
   onAddSystem(): void;
   onPasteSystemsAnsConnections(): void;
+  addSystemBlockedReason?: string | null;
+  /** The system awaiting a destination, or null when no move is in progress. */
+  pendingMoveSystemId?: string | null;
+  onMoveSystemHere(): void;
+  onCancelMoveSystem(): void;
 }
 
 export const ContextMenuRoot: React.FC<ContextMenuRootProps> = ({
@@ -20,20 +25,65 @@ export const ContextMenuRoot: React.FC<ContextMenuRootProps> = ({
   onAddSystem,
   onPasteSystemsAnsConnections,
   pasteSystemsAndConnections,
+  addSystemBlockedReason = null,
+  pendingMoveSystemId = null,
+  onMoveSystemHere,
+  onCancelMoveSystem,
 }) => {
   const {
-    data: { options, userPermissions },
+    data: { options, userPermissions, systems },
   } = useMapState();
 
   const items: MenuItem[] = useMemo(() => {
     const allowPaste = checkPermissions(userPermissions, options.allowed_paste_for);
+    const movingSystemName = pendingMoveSystemId
+      ? (systems.find(x => x.id === pendingMoveSystemId)?.name ?? pendingMoveSystemId)
+      : null;
 
     return [
-      {
-        label: 'Add System',
-        icon: PrimeIcons.PLUS,
-        command: onAddSystem,
-      },
+      ...(pendingMoveSystemId != null
+        ? [
+            {
+              // Named, not just "Move System here": with the destination menu
+              // open it has to be obvious *which* system is about to move.
+              label: `Move ${movingSystemName} here`,
+              icon: PrimeIcons.ARROWS_H,
+              command: onMoveSystemHere,
+            },
+            {
+              label: 'Cancel Move',
+              icon: PrimeIcons.TIMES,
+              command: onCancelMoveSystem,
+            },
+            { separator: true },
+          ]
+        : []),
+      ...(addSystemBlockedReason != null
+        ? [
+            {
+              // Shown rather than removed: a menu item that silently disappears
+              // reads as a bug, and the reason tells the user how to get it back.
+              command: undefined,
+              template: () => (
+                <MenuItemWithInfo
+                  infoTitle={addSystemBlockedReason}
+                  infoClass={clsx(PrimeIcons.QUESTION_CIRCLE, 'text-stone-500 mr-[12px]')}
+                  tooltipWrapperClassName="flex"
+                >
+                  <WdMenuItem disabled icon={PrimeIcons.PLUS}>
+                    Add System
+                  </WdMenuItem>
+                </MenuItemWithInfo>
+              ),
+            },
+          ]
+        : [
+            {
+              label: 'Add System',
+              icon: PrimeIcons.PLUS,
+              command: onAddSystem,
+            },
+          ]),
       ...(pasteSystemsAndConnections != null
         ? [
             {
@@ -65,7 +115,18 @@ export const ContextMenuRoot: React.FC<ContextMenuRootProps> = ({
           ]
         : []),
     ];
-  }, [userPermissions, options, onAddSystem, pasteSystemsAndConnections, onPasteSystemsAnsConnections]);
+  }, [
+    userPermissions,
+    options,
+    systems,
+    onAddSystem,
+    pasteSystemsAndConnections,
+    onPasteSystemsAnsConnections,
+    addSystemBlockedReason,
+    pendingMoveSystemId,
+    onMoveSystemHere,
+    onCancelMoveSystem,
+  ]);
 
   return (
     <>

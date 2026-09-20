@@ -10,6 +10,7 @@ import {
   CommandCommentRemoved,
   CommandInit,
   CommandLinkSignatureToSystem,
+  CommandMapError,
   CommandMapUpdated,
   CommandPingAdded,
   CommandPingBlocked,
@@ -30,6 +31,7 @@ import { ForwardedRef, useImperativeHandle } from 'react';
 
 import {
   useCommandComments,
+  useCommandMapError,
   useCommandPingBlocked,
   useCommandPings,
   useCommandsCharacters,
@@ -66,6 +68,7 @@ export const useMapRootHandlers = (ref: ForwardedRef<MapHandlers>) => {
   const { addComment, removeComment } = useCommandComments();
   const { pingAdded, pingCancelled } = useCommandPings();
   const { pingBlocked } = useCommandPingBlocked();
+  const { mapError } = useCommandMapError();
   const { characterActivityData, trackingCharactersData, userSettingsUpdated } = useCommandsActivity();
 
   useImperativeHandle(ref, () => {
@@ -182,6 +185,9 @@ export const useMapRootHandlers = (ref: ForwardedRef<MapHandlers>) => {
             break;
           case Commands.pingBlocked:
             pingBlocked(data as CommandPingBlocked);
+            break;
+          case Commands.mapError:
+            mapError(data as CommandMapError);
             break;
           default:
             console.warn(`JOipP Interface handlers: Unknown command: ${type}`, data);

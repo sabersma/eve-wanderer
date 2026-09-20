@@ -7,11 +7,21 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   alias WandererApp.Map.Server.Impl
   alias WandererApp.Map.Server.SignaturesImpl
   alias WandererApp.Map.Server.ConnectionsImpl
+  alias WandererApp.Map.Layout.Geometry
+  alias WandererApp.Map.Layout.Occupancy
+  alias WandererApp.Map.Layout.Placement
 
   @ddrt Application.compile_env(:wanderer_app, :ddrt)
   @system_auto_expire_minutes 15
   @system_inactive_timeout :timer.minutes(15)
   @hidden_system_expire_hours 24
+
+  @spacing_x Geometry.spacing_x()
+  @spacing_y Geometry.spacing_y()
+
+  # How far the rearrange slot search may wander from where the band maths wanted
+  # a node, in grid steps. About one screen, matching the bound placement uses.
+  @max_slot_radius 8
 
   def init_last_activity_cache(map_id, systems_last_activity) do
     systems_last_activity
@@ -219,11 +229,6 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   Re-arrange all systems connected to the given home system using level-based layout.
   Systems are placed in columns based on their BFS depth from home.
   """
-  @node_w 130
-  @node_h 34
-  @margin_x 50
-  @margin_y 41
-
   def rearrange_systems(map_id, home_solar_system_id) do
     home =
       map_id
@@ -248,6 +253,11 @@ defmodule WandererApp.Map.Server.SystemsImpl do
         home, depths, directions, parents, branch_roots, excluded, current_systems
       )
 
+      # The band maths above only knows about the systems it is rearranging, so
+      # a rearranged node can land exactly on a system that is staying put.
+      # Resolve that before writing anything.
+      positions = resolve_rearrange_collisions(positions, depths, parents, current_systems)
+
       # Apply all positions in sorted order for stable R-tree updates
       positions
       |> Enum.sort_by(fn {sid, _} -> {Map.get(depths, sid), Map.get(parents, sid, sid)} end)
@@ -265,6 +275,56 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
       :ok
     end
+  end
+
+  # Keeps a re-arranged layout from landing on systems that are not moving.
+  #
+  # `compute_rearrange_positions/7` gives each branch its own vertical band, but
+  # it only knows about the systems it is rearranging. Locked systems, and any
+  # cluster the BFS never reached, keep whatever position they have and can sit
+  # exactly where a rearranged node is about to be written, which is how a
+  # rearrange used to stack one cluster on top of another.
+  #
+  # The stay-put systems are claimed into an occupancy index first; then every
+  # rearranged node is placed, in the same `{depth, parent}` order the positions
+  # are written in, on the nearest free slot to where the band maths wanted it.
+  # The search prefers to stay in the node's own column, so the result still
+  # reads as a tree.
+  defp resolve_rearrange_collisions(positions, depths, parents, current_systems) do
+    moving = MapSet.new(Map.keys(positions))
+
+    fixed =
+      current_systems
+      |> Map.values()
+      |> Enum.reject(&MapSet.member?(moving, &1.solar_system_id))
+      |> Enum.map(fn sys ->
+        {sys.solar_system_id, {sys.position_x || 0, sys.position_y || 0}}
+      end)
+      |> Enum.into(%{})
+
+    occ = Occupancy.from_positions(fixed)
+
+    positions
+    |> Enum.sort_by(fn {sid, _} -> {Map.get(depths, sid), Map.get(parents, sid, sid)} end)
+    |> Enum.reduce({%{}, occ, 0}, fn {sid, {x, y}}, {acc, occ, nudged} ->
+      case Occupancy.free?(occ, {x, y}) do
+        true ->
+          {Map.put(acc, sid, {x, y}), Occupancy.claim(occ, sid, {x, y}), nudged}
+
+        false ->
+          {position, _status} = Occupancy.find_free_slot(occ, {x, y}, max_radius: @max_slot_radius)
+          {Map.put(acc, sid, position), Occupancy.claim(occ, sid, position), nudged + 1}
+      end
+    end)
+    |> then(fn {resolved, _occ, nudged} ->
+      if nudged > 0 do
+        Logger.info(
+          "[rearrange] Nudged #{nudged} of #{map_size(positions)} systems off a slot held by a system that is not rearranging"
+        )
+      end
+
+      resolved
+    end)
   end
 
   # Pre-calculate positions for all systems without using R-tree.
@@ -303,8 +363,8 @@ defmodule WandererApp.Map.Server.SystemsImpl do
       side_groups
       |> Enum.sort_by(fn {{_dir, branch_root}, _} -> branch_root end)
 
-    spacing_x = @node_w + @margin_x
-    spacing_y = @node_h + @margin_y
+    spacing_x = @spacing_x
+    spacing_y = @spacing_y
 
     # Calculate total height needed: sum of each branch's max depth width * spacing
     branch_heights =
@@ -317,7 +377,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
           |> Enum.map(fn {_d, ss} -> length(ss) end)
           |> Enum.max(fn -> 0 end)
 
-        max_per_depth * spacing_y + @margin_y
+        max_per_depth * spacing_y + Geometry.margin_y()
       end)
 
     total_height = Enum.sum(branch_heights)
@@ -437,6 +497,11 @@ defmodule WandererApp.Map.Server.SystemsImpl do
           [conn.solar_system_source | ex]
         end)
       end)
+      # Neighbours are visited in the order this list has them, and both the
+      # queue order and the locked-side probe below read it, so an unsorted list
+      # makes the whole layout depend on the order connections came out of the
+      # cache.
+      |> Map.new(fn {id, neighbors} -> {id, Enum.sort(neighbors)} end)
 
     home_id = home.solar_system_id
 
@@ -1004,13 +1069,23 @@ defmodule WandererApp.Map.Server.SystemsImpl do
       {:ok, location} ->
         rtree_name = "rtree_#{map_id}"
 
-        {:ok, position} = calc_new_system_position(map_id, old_location, rtree_name, map_opts)
+        {:ok, position} = calc_new_system_position(map_id, location, old_location, rtree_name, map_opts)
 
         case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(
                map_id,
                location.solar_system_id
              ) do
           {:ok, existing_system} when not is_nil(existing_system) ->
+            # A system that is already placed sensibly stays where it is; only a
+            # stranded one is pulled in next to the system the character came
+            # from. See keep_position?/3.
+            position =
+              if keep_position?(map_id, existing_system, old_location) do
+                %{x: existing_system.position_x, y: existing_system.position_y}
+              else
+                position
+              end
+
             updated_system =
               existing_system
               |> WandererApp.MapSystemRepo.update_position!(%{
@@ -1022,6 +1097,19 @@ defmodule WandererApp.Map.Server.SystemsImpl do
               |> WandererApp.MapSystemRepo.cleanup_tags!()
               |> WandererApp.MapSystemRepo.cleanup_temporary_name!()
               |> WandererApp.MapSystemRepo.cleanup_linked_sig_eve_id!()
+
+            # The repo writes go straight to the database, and add_system/2 below
+            # is a no-op for a system the map cache already holds, so without
+            # this the server would keep serving — and keep placing other
+            # systems against — the old coordinates.
+            WandererApp.Map.update_system_cache_position(
+              map_id,
+              updated_system.solar_system_id,
+              updated_system.position_x,
+              updated_system.position_y
+            )
+
+            WandererApp.Map.update_system_visibility(map_id, updated_system.solar_system_id, true)
 
             @ddrt.insert(
               {existing_system.solar_system_id,
@@ -1222,11 +1310,23 @@ defmodule WandererApp.Map.Server.SystemsImpl do
         system_info
         |> Map.get(:coordinates)
         |> case do
+          # An explicit coordinate (right-click add, paste) is honoured when it
+          # is free. It used to be written verbatim without checking anything, so
+          # it could land exactly on an existing node.
           %{"x" => x, "y" => y} ->
+            {x, y} = snap_to_free_slot(map_id, solar_system_id, {x, y})
             %{"x" => x, "y" => y}
 
           _ ->
-            {:ok, %{x: x, y: y}} = calc_new_system_position(map_id, nil, rtree_name, map_opts)
+            {:ok, %{x: x, y: y}} =
+              calc_new_system_position(
+                map_id,
+                %{solar_system_id: solar_system_id},
+                nil,
+                rtree_name,
+                map_opts
+              )
+
             %{"x" => x, "y" => y}
         end
 
@@ -1471,156 +1571,57 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
   defp maybe_update_temporary_name(system, _temporary_name),
     do: system
+  # Where a newly-arriving system is placed.
+  #
+  # Always within about one screen of the system the character travelled from,
+  # on a slot that is free according to the live system list. That bound is the
+  # whole point: the previous implementation measured a BFS depth column from
+  # the map's home system, which can be screens away from the anchor the user is
+  # actually looking at, and fell back to `get_level_position` from home when the
+  # column was taken.
+  #
+  # `location` is the system being placed. It is left out of the occupancy so a
+  # system that is already on the map cannot block its own new position.
+  defp calc_new_system_position(map_id, location, old_location, _rtree_name, _opts) do
+    anchor = WandererApp.Map.find_system_by_location(map_id, old_location)
 
-  defp calc_new_system_position(map_id, old_location, rtree_name, opts),
-    do:
-      {:ok,
-       map_id
-       |> WandererApp.Map.find_system_by_location(old_location)
-       |> calc_position_for_system(map_id, old_location, rtree_name, opts)}
+    position =
+      WandererApp.Map.list_systems!(map_id)
+      |> Placement.new_position(anchor && anchor.solar_system_id, location.solar_system_id)
 
-  # Calculate position for a new system. If the system is connected to a home or lock
-  # system, use level-based / branch-aware layout anchored at the home. Otherwise, use
-  # compact spiral clustering around the anchor (or a lower empty area when there is no
-  # anchor at all). This prevents unconnected systems from drifting toward home.
-  defp calc_position_for_system(nil, map_id, _old_location, rtree_name, opts) do
-    # No anchor system — place in lower empty area when homes exist, else default spiral
-    case find_home_system(map_id) do
-      nil -> WandererApp.Map.PositionCalculator.get_new_system_position(nil, rtree_name, opts)
-      _home -> find_lower_empty_position(map_id, rtree_name)
-    end
+    {:ok, position}
   end
 
-  defp calc_position_for_system(anchor_system, map_id, _old_location, rtree_name, opts) do
-    case find_home_system(map_id, anchor_system) do
-      nil ->
-        WandererApp.Map.PositionCalculator.get_new_system_position(anchor_system, rtree_name, opts)
-
-      home ->
-        # Run BFS from home to determine if the anchor is actually reachable.
-        # The BFS respects locked-system boundaries (stops at locked), so anchors
-        # in isolated clusters won't be in the tree — they spiral independently.
-        current_systems =
-          map_id
-          |> WandererApp.Map.list_systems!()
-          |> Enum.reduce(%{}, fn sys, acc -> Map.put(acc, sys.solar_system_id, sys) end)
-
-        {depths, _directions, parents, branch_roots, _excluded} =
-          bfs_rearrange_metadata(map_id, home, current_systems)
-
-        if Map.has_key?(depths, anchor_system.solar_system_id) do
-          # Anchor is in the BFS tree — use branch-aware, parent-aligned positioning.
-          parent_depth = Map.get(depths, anchor_system.solar_system_id)
-          new_depth = parent_depth + 1
-
-          direction = if anchor_system.position_x >= home.position_x, do: 1, else: -1
-
-          x = home.position_x + direction * new_depth * (@node_w + @margin_x)
-
-          # Compute Y using branch-aware parent alignment (same logic as rearrange).
-          # Collect other visible systems at the same depth in the same branch,
-          # sorted by their parent's Y.
-          new_branch_root = Map.get(branch_roots, anchor_system.solar_system_id, anchor_system.solar_system_id)
-          spacing_y = @node_h + @margin_y
-
-          sibling_ys =
-            depths
-            |> Enum.filter(fn {sid, d} ->
-              d == new_depth and
-                Map.get(branch_roots, sid) == new_branch_root and
-                Map.get(current_systems, sid) |> then(&(not is_nil(&1) and Map.get(&1, :visible, true)))
-            end)
-            |> Enum.sort_by(fn {sid, _} ->
-              pid = Map.get(parents, sid, sid)
-              parent_pos = Map.get(current_systems, pid)
-              if not is_nil(parent_pos), do: {parent_pos.position_y, pid}, else: {home.position_y, pid}
-            end)
-            |> Enum.map(fn {sid, _} -> Map.get(current_systems, sid).position_y end)
-
-          # Ideal Y = parent's Y for horizontal alignment
-          ideal_y = anchor_system.position_y
-
-          y = find_closest_y(ideal_y, Enum.map(sibling_ys, &{&1, nil}), spacing_y)
-
-          # Verify the position is available in R-tree; fall back to level-position if blocked
-          candidate_pos = %{position_x: x, position_y: y}
-          bounding_rect = WandererApp.Map.PositionCalculator.get_system_bounding_rect(candidate_pos)
-
-          case @ddrt.query(bounding_rect, rtree_name) do
-            {:ok, []} ->
-              %{x: x, y: y}
-
-            _ ->
-              # Position blocked, fall back to level-position which scans for alternatives
-              {fx, fy} = WandererApp.Map.PositionCalculator.get_level_position(
-                home.position_x, home.position_y, new_depth, direction, rtree_name
-              )
-              %{x: fx, y: fy}
-          end
-        else
-          # Anchor is NOT reachable from home (isolated cluster or behind locked
-          # boundary) — spiral-compact around the anchor instead of drifting home.
-          WandererApp.Map.PositionCalculator.get_new_system_position(anchor_system, rtree_name, opts)
-        end
-    end
+  # A system that is already on the map keeps the position it has unless it is
+  # stranded — further than about one screen from every system it connects to.
+  # Re-stamping a well-placed node's position on every jump is what made nodes
+  # move under the character: the anchor says where the character came from, not
+  # where the arriving system's other neighbours are.
+  defp keep_position?(map_id, existing_system, old_location) do
+    Placement.keep_position?(
+      WandererApp.Map.list_systems!(map_id),
+      WandererApp.Map.list_connections!(map_id),
+      existing_system,
+      old_location && old_location.solar_system_id
+    )
   end
 
-  # Find the home system on the map (status == 1)
-  # Find the nearest home system to the anchor system's position.
-  # When no anchor is given, returns any home (first found).
-  defp find_home_system(map_id, anchor_system \\ nil) do
-    homes =
-      map_id
-      |> WandererApp.Map.list_systems!()
-      |> Enum.filter(fn sys -> Map.get(sys, :status) == 1 and Map.get(sys, :visible, true) end)
+  # A position written from an explicit coordinate is kept when it is free, and
+  # nudged to the nearest free slot when it is not, so two systems can never be
+  # written on top of each other.
+  defp snap_to_free_slot(map_id, solar_system_id, requested) do
+    position =
+      WandererApp.Map.list_systems!(map_id)
+      |> Placement.snap_to_free_slot(solar_system_id, requested)
 
-    if is_nil(anchor_system) or length(homes) <= 1 do
-      List.first(homes)
-    else
-      Enum.min_by(homes, fn h ->
-        dx = h.position_x - anchor_system.position_x
-        dy = h.position_y - anchor_system.position_y
-        dx * dx + dy * dy
-      end)
+    if position != requested do
+      Logger.info(
+        "[system-placement] #{solar_system_id} was asked for #{inspect(requested)}, " <>
+          "which is taken; using #{inspect(position)}"
+      )
     end
-  end
 
-  # Find an empty position in the lower area of the map, below all existing systems.
-  # Used for brand-new isolated nodes that have no anchor to cluster around.
-  defp find_lower_empty_position(map_id, rtree_name) do
-    systems = WandererApp.Map.list_systems!(map_id)
-
-    if Enum.empty?(systems) do
-      %{x: 0, y: 0}
-    else
-      max_y =
-        systems
-        |> Enum.map(fn sys -> Map.get(sys, :position_y, 0) end)
-        |> Enum.max(fn -> 0 end)
-
-      # Start below the lowest system with generous margin
-      start_y = max_y + @node_h + @margin_y * 3
-      start_x = 0
-
-      candidate_rect =
-        WandererApp.Map.PositionCalculator.get_system_bounding_rect(%{
-          position_x: start_x,
-          position_y: start_y
-        })
-
-      case @ddrt.query(candidate_rect, rtree_name) do
-        {:ok, []} ->
-          %{x: start_x, y: start_y}
-
-        _ ->
-          # Position occupied, use spiral search from the lower start point
-          WandererApp.Map.PositionCalculator.get_new_system_position(
-            %{position_x: start_x, position_y: start_y},
-            rtree_name,
-            %{}
-          )
-      end
-    end
+    position
   end
 
   defp update_system(

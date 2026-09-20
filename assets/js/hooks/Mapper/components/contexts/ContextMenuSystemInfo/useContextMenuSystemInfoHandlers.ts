@@ -10,7 +10,10 @@ import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { useRouteProvider } from '@/hooks/Mapper/components/mapInterface/widgets/RoutesWidget/RoutesProvider.tsx';
 
 export const useContextMenuSystemInfoHandlers = () => {
-  const { outCommand } = useMapRootState();
+  const {
+    outCommand,
+    data: { viewMode },
+  } = useMapRootState();
   const { hubs = [], toggleHubCommand } = useRouteProvider();
 
   const contextMenuRef = useRef<ContextMenu | null>(null);
@@ -18,8 +21,8 @@ export const useContextMenuSystemInfoHandlers = () => {
   const [system, setSystem] = useState<string>();
   const routeRef = useRef<(SolarSystemStaticInfoRaw | undefined)[]>([]);
 
-  const ref = useRef({ hubs, system, outCommand, toggleHubCommand });
-  ref.current = { hubs, system, outCommand, toggleHubCommand };
+  const ref = useRef({ hubs, system, outCommand, toggleHubCommand, viewMode });
+  ref.current = { hubs, system, outCommand, toggleHubCommand, viewMode };
 
   const open = useCallback(
     (ev: React.SyntheticEvent, systemId: string, route: (SolarSystemStaticInfoRaw | undefined)[]) => {
@@ -43,7 +46,7 @@ export const useContextMenuSystemInfoHandlers = () => {
   }, []);
 
   const onAddSystem = useCallback(() => {
-    const { system: solarSystemId, outCommand } = ref.current;
+    const { system: solarSystemId, outCommand, viewMode } = ref.current;
     if (!solarSystemId) {
       return;
     }
@@ -52,6 +55,10 @@ export const useContextMenuSystemInfoHandlers = () => {
       type: OutCommand.manualAddSystem,
       data: {
         solar_system_id: parseInt(solarSystemId),
+        // See MapWrapper: the server refuses an add while unsubscribed clusters
+        // are hidden only in the subscription view, which it can only know if
+        // the client says which view it is in.
+        view_mode: viewMode,
       },
     });
 

@@ -37,6 +37,8 @@ export const useContextMenuSystemItems = ({
   onWaypointSet,
   onRearrange,
   onAddSignature,
+  onMoveSystem,
+  onSelectCluster,
   systemId,
   hubs,
   userHubs,
@@ -52,8 +54,13 @@ export const useContextMenuSystemItems = ({
   const getUserRoutes = useUserRoute({ userHubs, systemId, onUserHubToggle });
 
   const {
-    data: { pings, isSubscriptionActive, subscribedSystemIds },
+    data: { pings, isSubscriptionActive, subscribedSystemIds, pendingMoveSystemId, viewMode },
   } = useMapRootState();
+
+  // In the subscription view the move only rewrites this user's local layout,
+  // so anyone may do it; in the global view it moves the system for everyone,
+  // which is what UPDATE_SYSTEM gates.
+  const canMoveOrSelect = viewMode === 'home' || canManageSystem;
 
   const ping = useMemo(() => (pings.length === 1 ? pings[0] : undefined), [pings]);
   const isShowPingBtn = useMemo(() => {
@@ -110,6 +117,20 @@ export const useContextMenuSystemItems = ({
               label: 'Re-arrange layout',
               icon: PrimeIcons.REFRESH,
               command: onRearrange,
+            },
+          ]
+        : []),
+      ...(canMoveOrSelect
+        ? [
+            {
+              label: pendingMoveSystemId === systemId ? 'Cancel Move' : 'Move System',
+              icon: PrimeIcons.ARROWS_H,
+              command: onMoveSystem,
+            },
+            {
+              label: 'Select Whole Cluster',
+              icon: PrimeIcons.SITEMAP,
+              command: onSelectCluster,
             },
           ]
         : []),
@@ -219,5 +240,9 @@ export const useContextMenuSystemItems = ({
     isShowPingBtn,
     onRearrange,
     onAddSignature,
+    onMoveSystem,
+    onSelectCluster,
+    canMoveOrSelect,
+    pendingMoveSystemId,
   ]);
 };

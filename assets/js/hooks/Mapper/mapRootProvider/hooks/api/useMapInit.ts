@@ -1,4 +1,8 @@
 import { MapRootData, useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import {
+  INITIAL_USER_REMOTE_SETTINGS,
+  UserRemoteSettings,
+} from '@/hooks/Mapper/mapRootProvider/types.ts';
 import { useLoadSystemStatic } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic.ts';
 import { CommandInit } from '@/hooks/Mapper/types';
 import { useCallback } from 'react';
@@ -31,8 +35,10 @@ export const useMapInit = () => {
         map_slug,
         expired_characters,
         subscribed_system_ids,
+        subscribed_systems,
         manually_added_system_ids,
         subscription_limit,
+        user_settings,
       } = props;
 
       const updateData: Partial<MapRootData> = {};
@@ -128,12 +134,26 @@ export const useMapInit = () => {
         updateData.subscribedSystemIds = subscribed_system_ids;
       }
 
+      if (subscribed_systems) {
+        updateData.subscribedSystems = subscribed_systems;
+      }
+
       if (manually_added_system_ids) {
         updateData.manuallyAddedSystemIds = manually_added_system_ids;
       }
 
       if (subscription_limit !== undefined) {
         updateData.subscriptionLimit = subscription_limit;
+      }
+
+      if (user_settings) {
+        // Merged over the defaults: a row stored before a setting existed does
+        // not carry its key, and a missing key must read as the default rather
+        // than as undefined.
+        updateData.userRemoteSettings = {
+          ...INITIAL_USER_REMOTE_SETTINGS,
+          ...(user_settings as Partial<UserRemoteSettings>),
+        };
       }
 
       update(updateData);

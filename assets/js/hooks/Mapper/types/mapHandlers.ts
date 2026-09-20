@@ -3,7 +3,7 @@ import { ActivitySummary, CharacterTypeRaw, TrackingCharacter } from '@/hooks/Ma
 import { SolarSystemConnection } from '@/hooks/Mapper/types/connection.ts';
 import { DetailedKill, Kill } from '@/hooks/Mapper/types/kills.ts';
 import { RoutesList } from '@/hooks/Mapper/types/routes.ts';
-import { RoutesByCategoryType } from '@/hooks/Mapper/mapRootProvider/types.ts';
+import { RoutesByCategoryType, SubscribedSystem } from '@/hooks/Mapper/mapRootProvider/types.ts';
 import { SolarSystemRawType, SolarSystemStaticInfoRaw } from '@/hooks/Mapper/types/system.ts';
 import { WormholeDataRaw } from '@/hooks/Mapper/types/wormholes.ts';
 
@@ -44,6 +44,7 @@ export enum Commands {
   pingAdded = 'ping_added',
   pingCancelled = 'ping_cancelled',
   pingBlocked = 'ping_blocked',
+  mapError = 'map_error',
 }
 
 export type Command =
@@ -82,7 +83,8 @@ export type Command =
   | Commands.refreshTrackingData
   | Commands.pingAdded
   | Commands.pingCancelled
-  | Commands.pingBlocked;
+  | Commands.pingBlocked
+  | Commands.mapError;
 
 export type CommandInit = {
   systems: SolarSystemRawType[];
@@ -110,8 +112,10 @@ export type CommandInit = {
   map_slug?: string;
   expired_characters: string[];
   subscribed_system_ids?: string[];
+  subscribed_systems?: SubscribedSystem[];
   manually_added_system_ids?: string[];
   subscription_limit?: number | null;
+  user_settings?: Record<string, unknown> | null;
 };
 
 export type CommandAddSystems = SolarSystemRawType[];
@@ -177,6 +181,16 @@ export type CommandPingBlocked = {
   message: string;
 };
 
+/**
+ * The server refused an action the client tried to take. Sent when a request
+ * that cannot be answered with a reply (a fire-and-forget UI event) is turned
+ * down, so the refusal is visible instead of looking like a no-op.
+ */
+export type CommandMapError = {
+  error: string;
+  message: string;
+};
+
 export interface UserSettings {
   primaryCharacterId?: string;
   mapSettings?: {
@@ -229,6 +243,7 @@ export interface CommandData {
   [Commands.pingAdded]: CommandPingAdded;
   [Commands.pingCancelled]: CommandPingCancelled;
   [Commands.pingBlocked]: CommandPingBlocked;
+  [Commands.mapError]: CommandMapError;
 }
 
 export interface MapHandlers {

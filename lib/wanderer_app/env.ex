@@ -19,6 +19,26 @@ defmodule WandererApp.Env do
   def map_subscriptions_enabled?(), do: get_key(:map_subscriptions_enabled, false)
   def public_api_disabled?(), do: get_key(:public_api_disabled, false)
 
+  @doc """
+  How many systems a user with the `add_system` permission (a member) may
+  subscribe to on a map. Configured with `WANDERER_SUBSCRIPTION_LIMIT_MEMBER`.
+  """
+  @decorate cacheable(
+              cache: WandererApp.Cache,
+              key: "subscription_limit_member"
+            )
+  def subscription_limit_member(), do: get_key(:subscription_limit_member, 10)
+
+  @doc """
+  How many systems a read-only user (a viewer) may subscribe to on a map.
+  Configured with `WANDERER_SUBSCRIPTION_LIMIT_VIEWER`.
+  """
+  @decorate cacheable(
+              cache: WandererApp.Cache,
+              key: "subscription_limit_viewer"
+            )
+  def subscription_limit_viewer(), do: get_key(:subscription_limit_viewer, 1)
+
   @decorate cacheable(
               cache: WandererApp.Cache,
               key: "active_tracking_pool"

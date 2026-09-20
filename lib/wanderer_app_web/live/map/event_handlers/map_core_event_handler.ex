@@ -257,15 +257,31 @@ defmodule WandererAppWeb.MapCoreEventHandler do
         user_settings_form,
         %{assigns: %{map_id: map_id, current_user: current_user}} = socket
       ) do
+    # A key missing from this list is dropped silently, so every new setting has
+    # to be added here as well as to @default_form_data in MapUserSettingsRepo.
     settings =
       user_settings_form
-      |> Map.take(["select_on_spash", "link_signature_on_splash", "delete_connection_with_sigs"])
+      |> Map.take([
+        "select_on_spash",
+        "link_signature_on_splash",
+        "delete_connection_with_sigs",
+        "hide_unsubscribed_clusters"
+      ])
       |> Jason.encode!()
 
     {:ok, user_settings} =
       WandererApp.MapUserSettingsRepo.create_or_update(map_id, current_user.id, settings)
 
-    {:noreply, socket |> assign(map_user_settings: user_settings)}
+    socket =
+      socket
+      |> assign(map_user_settings: user_settings)
+      # Kept as its own assign so the add-system handlers can match on it in a
+      # guard: the settings struct stores JSON, which no guard can look inside.
+      |> assign(
+        hide_unsubscribed_clusters?: hide_unsubscribed_clusters?(user_settings)
+      )
+
+    {:noreply, socket}
   end
 
   def handle_ui_event(
@@ -306,7 +322,11 @@ defmodule WandererAppWeb.MapCoreEventHandler do
                system_ids
              ) do
           {:ok, _} ->
-            payload = %{subscribed_system_ids: system_ids, subscription_limit: limit}
+            payload = %{
+              subscribed_system_ids: system_ids,
+              subscribed_systems: subscribed_systems(system_ids),
+              subscription_limit: limit
+            }
 
             {:reply, payload, socket |> MapEventHandler.push_map_event("map_updated", payload)}
 
@@ -457,11 +477,41 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     end
   end
 
-  # Subscription limits per role: admin/manager unlimited (nil), member 5, viewer 1.
+  # True when this user has chosen to see only the clusters reachable from their
+  # subscriptions. Read in three places: what is rendered, whether the
+  # add-system menu item is offered, and whether the add is accepted here.
+  defp hide_unsubscribed_clusters?(nil), do: false
+
+  defp hide_unsubscribed_clusters?(user_settings) do
+    {:ok, settings} = WandererApp.MapUserSettingsRepo.to_form_data(user_settings)
+
+    WandererApp.MapUserSettingsRepo.get_boolean_setting(settings, "hide_unsubscribed_clusters")
+  end
+
+  # Subscription limits per role: admin/manager unlimited (nil), everyone else
+  # gets the configured limit for their role. The numbers live in the
+  # environment (WANDERER_SUBSCRIPTION_LIMIT_MEMBER / _VIEWER) so an operator can
+  # raise them without a code change; the defaults are 10 and 1.
   defp subscription_limit(%{admin_map: true}), do: nil
   defp subscription_limit(%{manage_map: true}), do: nil
-  defp subscription_limit(%{add_system: true}), do: 5
-  defp subscription_limit(_), do: 1
+  defp subscription_limit(%{add_system: true}), do: WandererApp.Env.subscription_limit_member()
+  defp subscription_limit(_), do: WandererApp.Env.subscription_limit_viewer()
+
+  # Names for the subscription chips, resolved from the static system table
+  # rather than from the map's systems: a system the user has subscribed to but
+  # that is not (yet) on the map has no map record to read a name from, and the
+  # chip would otherwise fall back to showing the raw numeric id.
+  #
+  # `name` is deliberately null when the system is unknown to the static table —
+  # the client falls back to the id it already has rather than printing "nil".
+  defp subscribed_systems(system_ids) do
+    Enum.map(system_ids, fn system_id ->
+      case WandererApp.CachedInfo.get_system_static_info!(system_id) do
+        %{solar_system_name: name} when is_binary(name) -> %{id: system_id, name: name}
+        _ -> %{id: system_id, name: nil}
+      end
+    end)
+  end
 
   defp maybe_add_subscribed_systems(_map_id, [], _user_id, _character_id), do: :ok
 
@@ -505,6 +555,7 @@ defmodule WandererAppWeb.MapCoreEventHandler do
       |> assign(
         map_id: map_id,
         map_user_settings: init_data.map_user_settings,
+        hide_unsubscribed_clusters?: hide_unsubscribed_clusters?(init_data.map_user_settings),
         page_title: map_name,
         user_permissions: init_data.user_permissions,
         main_character_id: init_data.main_character_id,
@@ -807,6 +858,13 @@ defmodule WandererAppWeb.MapCoreEventHandler do
 
     subscription_limit = subscription_limit(user_permissions)
 
+    # Sent with the map data rather than only through "get_user_settings" (which
+    # the settings dialog calls on open) so the subscription view's hide mode is
+    # known before anything is rendered, instead of defaulting to "show" until
+    # the user happens to open the dialog.
+    {:ok, user_settings} =
+      WandererApp.MapUserSettingsRepo.to_form_data(Map.get(socket.assigns, :map_user_settings))
+
     Logger.info(
       "[map_start] map_id=#{map_id} connections=#{length(Map.get(map_data, :connections, []))} systems=#{length(Map.get(map_data, :systems, []))}"
     )
@@ -834,8 +892,10 @@ defmodule WandererAppWeb.MapCoreEventHandler do
           wormholes: WandererApp.CachedInfo.get_wormhole_types!(),
           effects: WandererApp.CachedInfo.get_effects!(),
           subscribed_system_ids: subscribed_system_ids,
+          subscribed_systems: subscribed_systems(subscribed_system_ids),
           manually_added_system_ids: manually_added_system_ids,
           subscription_limit: subscription_limit,
+          user_settings: user_settings,
           reset: true
         })
       )

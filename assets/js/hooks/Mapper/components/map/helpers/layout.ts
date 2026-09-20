@@ -1,19 +1,29 @@
 import { SolarSystemConnection, SolarSystemRawType } from '@/hooks/Mapper/types';
+import { MARGIN_Y, SPACING_X, SPACING_Y } from './geometry';
+import type { LayoutPosition, LayoutPositions } from './geometry';
+import {
+  Occupancy,
+  blockExtent,
+  claim,
+  findFreeSlot,
+  findFreeXOffset,
+  isFree,
+  occupancyOfPositions,
+} from './occupancy';
 
-const NODE_W = 130;
-const NODE_H = 34;
-const MARGIN_X = 50;
-const MARGIN_Y = 41;
+export { MARGIN_X, MARGIN_Y, NODE_H, NODE_W, SPACING_X, SPACING_Y } from './geometry';
+export type { LayoutPosition, LayoutPositions } from './geometry';
 
-const SPACING_X = NODE_W + MARGIN_X;
-const SPACING_Y = NODE_H + MARGIN_Y;
+/** Grid steps searched when looking for a free slot (8 -> about one screen). */
+const MAX_SLOT_RADIUS = 8;
 
-export interface LayoutPosition {
-  x: number;
-  y: number;
-}
-
-export type LayoutPositions = Record<string, LayoutPosition>;
+/**
+ * How far a system's data coordinate may sit from the nearest laid-out node
+ * before we treat it as "placed by the backend at some unrelated spot" instead
+ * of "where the user put it". 1200 flow px is roughly one screen, i.e. about
+ * seven columns.
+ */
+const MAX_ANCHOR_DIST = 1200;
 
 /**
  * Find the closest available Y near idealY, avoiding conflicts with
@@ -166,9 +176,19 @@ export function computeBfsLayout(
 }
 
 /**
- * Lay out multiple subscribed "roots" in one view. Each root's connected
- * subtree is laid out with {@link computeBfsLayout} (single-root) and the
- * subtrees are placed side-by-side horizontally so they never overlap.
+ * Lay out multiple subscribed "roots" in one view.
+ *
+ * Each root's connected subtree is laid out with {@link computeBfsLayout}
+ * (single-root), then packed left to right. Packing is collision-aware in three
+ * passes, so a subtree never lands on top of anything else on screen:
+ *
+ *   1. the systems reachable from no subscribed root (the user's own character's
+ *      separate cluster, isolated additions) are pinned where they already are
+ *      and claimed into an occupancy index;
+ *   2. each subtree is translated as a whole until it clears that index;
+ *   3. any individual node still colliding is nudged to the nearest free slot —
+ *      this also covers collisions *inside* a subtree, which `layoutSide` can
+ *      produce when its band-height estimate is too small.
  */
 export function computeMultiBfsLayout(
   homeIds: string[],
@@ -177,11 +197,14 @@ export function computeMultiBfsLayout(
   currentLayout?: LayoutPositions,
 ): LayoutPositions {
   const sysMap = new Map(systems.map(s => [s.id, s]));
-  const roots = homeIds.filter(id => sysMap.has(id));
+  // Sorted so the packing order (and therefore the result) never depends on the
+  // order the subscription ids happened to arrive in.
+  const roots = homeIds.filter(id => sysMap.has(id)).sort();
   if (roots.length === 0) return {};
 
   // Build undirected adjacency list + multi-source BFS to assign each system
-  // to the root that reaches it first.
+  // to the root that reaches it first. Neighbours are sorted so an ambiguous
+  // system (reachable at equal depth from two roots) is claimed deterministically.
   const adj = new Map<string, string[]>();
   const addEdge = (a: string, b: string) => {
     if (!adj.has(a)) adj.set(a, []);
@@ -191,6 +214,7 @@ export function computeMultiBfsLayout(
     addEdge(c.source, c.target);
     addEdge(c.target, c.source);
   }
+  for (const list of adj.values()) list.sort();
 
   const rootOf = new Map<string, string>();
   const visited = new Set<string>();
@@ -210,38 +234,79 @@ export function computeMultiBfsLayout(
     }
   }
 
+  // Pass 1: pin everything no subscribed root can reach.
   const positions: LayoutPositions = {};
+  for (const s of systems) {
+    if (rootOf.has(s.id)) continue;
+    positions[s.id] = currentLayout?.[s.id] ?? { x: s.position.x, y: s.position.y };
+  }
+
+  const occ = occupancyOfPositions(positions);
+
+  // Pass 2 + 3: pack each root's subtree clear, then place it node by node.
   let xCursor = 0;
 
-  roots.forEach(rootId => {
+  for (const rootId of roots) {
     const subtreeIds = new Set(systems.filter(s => rootOf.get(s.id) === rootId).map(s => s.id));
     const subtreeSystems = systems.filter(s => subtreeIds.has(s.id));
     const subtreeConns = connections.filter(c => subtreeIds.has(c.source) && subtreeIds.has(c.target));
 
     const tree = computeBfsLayout(rootId, subtreeSystems, subtreeConns, [], currentLayout);
+    const treeIds = Object.keys(tree);
+    if (treeIds.length === 0) continue;
 
-    let minX = Infinity;
-    let maxX = -Infinity;
-    for (const sid of Object.keys(tree)) {
-      minX = Math.min(minX, tree[sid].x);
-      maxX = Math.max(maxX, tree[sid].x);
+    let extent = blockExtent(tree);
+    let shift = xCursor - extent.minX;
+    let placed = findFreeXOffset(occ, tree, shift);
+
+    if (!placed.ok) {
+      // The horizontal band is full. Drop the subtree below everything placed
+      // so far and try once more; the space underneath is empty by construction.
+      const dropY = maxY(positions) + SPACING_Y - minY(tree);
+      for (const id of treeIds) tree[id] = { x: tree[id].x, y: tree[id].y + dropY };
+
+      extent = blockExtent(tree);
+      shift = xCursor - extent.minX;
+      placed = findFreeXOffset(occ, tree, shift);
     }
-    const width = maxX === -Infinity ? 0 : maxX - minX;
 
-    for (const sid of Object.keys(tree)) {
-      positions[sid] = { x: tree[sid].x - minX + xCursor, y: tree[sid].y };
+    // Column by column, top to bottom: deterministic, and it keeps each column
+    // coherent by letting an upper node pick its slot before a lower one.
+    const ordered = [...treeIds].sort((a, b) => {
+      const pa = tree[a];
+      const pb = tree[b];
+      return pa.x - pb.x || pa.y - pb.y || (a < b ? -1 : 1);
+    });
+
+    let maxPlacedX = -Infinity;
+
+    for (const id of ordered) {
+      const desired = { x: tree[id].x + placed.offsetX, y: tree[id].y };
+      const slot = isFree(occ, desired.x, desired.y)
+        ? { position: desired, ok: true }
+        : findFreeSlot(occ, desired, { maxRadius: MAX_SLOT_RADIUS });
+
+      positions[id] = slot.position;
+      claim(occ, id, slot.position);
+      maxPlacedX = Math.max(maxPlacedX, slot.position.x);
     }
-    xCursor += width + MARGIN_X * 4;
-  });
 
-  // Systems not reached by any subscribed root (the user's own character's
-  // separate cluster, or isolated systems) keep their current/data position.
-  for (const s of systems) {
-    if (positions[s.id]) continue;
-    positions[s.id] = currentLayout?.[s.id] ?? { x: s.position.x, y: s.position.y };
+    xCursor = maxPlacedX === -Infinity ? xCursor : maxPlacedX + SPACING_X;
   }
 
   return positions;
+}
+
+function maxY(positions: LayoutPositions): number {
+  let result = -Infinity;
+  for (const id of Object.keys(positions)) result = Math.max(result, positions[id].y);
+  return Number.isFinite(result) ? result : 0;
+}
+
+function minY(positions: LayoutPositions): number {
+  let result = Infinity;
+  for (const id of Object.keys(positions)) result = Math.min(result, positions[id].y);
+  return Number.isFinite(result) ? result : 0;
 }
 
 /**
@@ -309,76 +374,95 @@ function layoutSide(
   });
 }
 
-function isOccupied(candidate: LayoutPosition, stored: LayoutPositions): boolean {
-  return Object.values(stored).some(p => p.x === candidate.x && p.y === candidate.y);
-}
+/**
+ * Where an unanchored system should go: near `sys`'s data coordinate when that
+ * coordinate is believable, otherwise beside the laid-out cluster.
+ *
+ * The data coordinate is believable when the nearest laid-out node is within
+ * {@link MAX_ANCHOR_DIST} — that covers a system the user dropped near the
+ * cluster. Beyond that distance it is the backend's own placement (its grid is
+ * unrelated to this user's local layout), and honouring it is exactly what put
+ * nodes screens away from everything else. In that case the cluster centroid is
+ * used, so the node lands at the edge of the cluster instead.
+ */
+function unanchoredTarget(sys: SolarSystemRawType | undefined, stored: LayoutPositions): LayoutPosition {
+  const ids = Object.keys(stored);
 
-function defaultAnchor(stored: LayoutPositions): LayoutPosition {
-  const positions = Object.values(stored);
-  if (positions.length === 0) return { x: 0, y: 0 };
+  if (ids.length === 0) {
+    return sys ? { x: sys.position.x, y: sys.position.y } : { x: 0, y: 0 };
+  }
 
-  const maxX = Math.max(...positions.map(p => p.x));
-  const maxY = Math.max(...positions.map(p => p.y));
-  return { x: maxX, y: maxY };
+  if (sys) {
+    let nearest: LayoutPosition | null = null;
+    let nearestDist = Infinity;
+
+    for (const id of ids) {
+      const pos = stored[id];
+      const dist = Math.max(Math.abs(pos.x - sys.position.x), Math.abs(pos.y - sys.position.y));
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = pos;
+      }
+    }
+
+    if (nearest && nearestDist <= MAX_ANCHOR_DIST) return { x: sys.position.x, y: sys.position.y };
+  }
+
+  // Centroid of the laid-out cluster. Summed in a sorted id order so the result
+  // does not depend on key iteration order.
+  let sumX = 0;
+  let sumY = 0;
+  for (const id of [...ids].sort()) {
+    sumX += stored[id].x;
+    sumY += stored[id].y;
+  }
+  return { x: Math.round(sumX / ids.length), y: Math.round(sumY / ids.length) };
 }
 
 /**
  * Compute a position for a newly-added system on top of an existing cached
  * layout, WITHOUT recomputing the whole tree.
  *
- * - effective-locked system: keep its global data coordinate
- * - otherwise: anchor to its first already-laid-out neighbor, using the new
- *   system's global x relative to that anchor to pick left/right, then spiral
- *   outward to find the first free grid slot
+ * - a system with an already-laid-out neighbour goes in the column on the side
+ *   it sits on globally, one grid step out;
+ * - one without is placed near {@link unanchoredTarget} instead of blindly at
+ *   its data coordinate;
+ * - either way the nearest free slot is used, so a new node never lands on top
+ *   of an existing one.
+ *
+ * `occ` can be passed in when the caller is placing several systems in one
+ * batch, so the index is built once instead of per system.
  */
 export function computeNewNodePosition(
   newId: string,
   stored: LayoutPositions,
   systems: SolarSystemRawType[],
   connections: SolarSystemConnection[],
+  occ?: Occupancy,
 ): LayoutPosition {
   const sysMap = new Map(systems.map(s => [s.id, s]));
   const sys = sysMap.get(newId);
 
+  const occupancy = occ ?? occupancyOfPositions(stored, new Set([newId]));
+
   const neighborIds = connections
     .filter(c => c.source === newId || c.target === newId)
-    .map(c => (c.source === newId ? c.target : c.source));
+    .map(c => (c.source === newId ? c.target : c.source))
+    .sort();
 
-  const anchored = neighborIds.filter(id => stored[id]);
+  const anchorId = neighborIds.find(id => stored[id]);
 
-  let anchor: LayoutPosition;
-  let direction: 1 | -1;
-
-  if (anchored.length > 0) {
-    const anchorId = anchored[0];
+  if (anchorId) {
+    const anchor = stored[anchorId];
     const anchorSys = sysMap.get(anchorId);
-    anchor = stored[anchorId];
-    direction = anchorSys && sys && sys.position.x >= anchorSys.position.x ? 1 : -1;
-  } else if (sys) {
-    // Isolated system (no laid-out neighbor): keep its data coordinate, which
-    // is where the user right-clicked when manually adding it.
-    return { x: sys.position.x, y: sys.position.y };
-  } else {
-    anchor = defaultAnchor(stored);
-    direction = 1;
+    const direction = anchorSys && sys && sys.position.x >= anchorSys.position.x ? 1 : -1;
+
+    return findFreeSlot(
+      occupancy,
+      { x: anchor.x + direction * SPACING_X, y: anchor.y },
+      { prefer: direction, maxRadius: MAX_SLOT_RADIUS },
+    ).position;
   }
 
-  // Spiral outward from the anchor, preferring the chosen direction first.
-  const offsets: LayoutPosition[] = [
-    { x: direction * SPACING_X, y: 0 },
-    { x: 0, y: SPACING_Y },
-    { x: 0, y: -SPACING_Y },
-    { x: direction * 2 * SPACING_X, y: 0 },
-    { x: direction * SPACING_X, y: SPACING_Y },
-    { x: direction * SPACING_X, y: -SPACING_Y },
-    { x: direction * 2 * SPACING_X, y: SPACING_Y },
-    { x: direction * 2 * SPACING_X, y: -SPACING_Y },
-  ];
-
-  for (const off of offsets) {
-    const candidate = { x: anchor.x + off.x, y: anchor.y + off.y };
-    if (!isOccupied(candidate, stored)) return candidate;
-  }
-
-  return { x: anchor.x + direction * SPACING_X, y: anchor.y + SPACING_Y };
+  return findFreeSlot(occupancy, unanchoredTarget(sys, stored), { maxRadius: MAX_SLOT_RADIUS }).position;
 }

@@ -11,3 +11,4 @@ export * from './useGetCacheCharacter';
 export * from './useCommandsActivity';
 export * from './useCommandPings';
 export * from './useCommandPingBlocked';
+export * from './useCommandMapError';

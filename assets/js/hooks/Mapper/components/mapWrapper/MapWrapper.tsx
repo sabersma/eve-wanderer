@@ -34,6 +34,7 @@ import { PingType } from '@/hooks/Mapper/types/ping.ts';
 import type { PanelPosition } from '@reactflow/core';
 import { useHotkey } from '../../hooks/useHotkey';
 import { MINI_MAP_PLACEMENT_OFFSETS } from './constants.ts';
+import { useToast } from '@/hooks/Mapper/ToastProvider.tsx';
 import { SignatureSettings } from '@/hooks/Mapper/components/mapRootContent/components/SignatureSettings';
 
 // TODO: INFO - this component needs for abstract work with Map instance
@@ -56,6 +57,8 @@ export const MapWrapper = () => {
       connections,
       characters,
       userCharacters,
+      userRemoteSettings,
+      pendingMoveSystemId,
     },
     storedSettings: { interfaceSettings, settingsLocal, mapSettings, mapSettingsUpdate },
   } = useMapRootState();
@@ -72,6 +75,7 @@ export const MapWrapper = () => {
   } = interfaceSettings;
 
   const { deleteSystems } = useDeleteSystems();
+  const { show } = useToast();
   const { mapRef, runCommand } = useCommonMapEventProcessor();
   const { getNodes } = useReactFlow();
 
@@ -93,7 +97,15 @@ export const MapWrapper = () => {
     visibleSystemIds,
     systems: filteredSystems,
     connections: filteredConnections,
-  } = useFilteredMapData(systems, connections, viewMode, subscribedSystemIds, myCharSystemIds, manuallyAddedSystemIds);
+  } = useFilteredMapData(
+    systems,
+    connections,
+    viewMode,
+    subscribedSystemIds,
+    myCharSystemIds,
+    manuallyAddedSystemIds,
+    userRemoteSettings.hide_unsubscribed_clusters,
+  );
 
   // Per-view local layout (null in 'all' view → use shared global coordinates)
   const { layoutPositions, savePosition, rearrangeLayout } = useViewLayout(
@@ -123,6 +135,7 @@ export const MapWrapper = () => {
     hubs,
     userHubs,
     outCommand: wrappedOutCommand,
+    visibleSystemIds,
   });
   const { handleSystemMultipleContext, ...systemMultipleCtxProps } = useContextMenuSystemMultipleHandlers();
 
@@ -141,6 +154,7 @@ export const MapWrapper = () => {
     systemSignatures,
     deleteSystems,
     mapSettingsUpdate,
+    pendingMoveSystemId,
   });
   ref.current = {
     selectedConnections,
@@ -150,6 +164,7 @@ export const MapWrapper = () => {
     systemSignatures,
     deleteSystems,
     mapSettingsUpdate,
+    pendingMoveSystemId,
   };
 
   useMapEventListener(event => {
@@ -258,12 +273,45 @@ export const MapWrapper = () => {
     }
   }, [getNodes, pings]);
 
-  const onAddSystem: OnMapAddSystemCallback = useCallback(({ coordinates }) => {
-    setOpenAddSystem(coordinates);
-  }, []);
+  // The subscription view's hide mode shows only clusters reachable from a
+  // subscription, so a newly added system would be invisible the moment it
+  // landed — and if it is not connected to the cluster, it never appears at all.
+  // The menu says why instead of opening a dialog that leads nowhere. The
+  // backend checks the same setting, so this is not the only line of defence.
+  //
+  // Chinese, like the 显示 / 隐藏 switch this reason tells the user to flip: the
+  // hover hint on the disabled menu item and the toast that fires when the add
+  // dialog was already open are the same message, so they share one string.
+  const addSystemBlockedReason =
+    viewMode === 'home' && userRemoteSettings.hide_unsubscribed_clusters
+      ? '隐藏模式下不可添加星系，请先切换为「显示」'
+      : null;
+
+  const moveSystemName = useMemo(
+    () =>
+      pendingMoveSystemId == null ? '' : (systems.find(x => x.id === pendingMoveSystemId)?.name ?? pendingMoveSystemId),
+    [pendingMoveSystemId, systems],
+  );
+
+  const onAddSystem: OnMapAddSystemCallback = useCallback(
+    ({ coordinates }) => {
+      if (addSystemBlockedReason != null) {
+        show({ severity: 'warn', summary: '无法添加星系', detail: addSystemBlockedReason });
+        return;
+      }
+
+      setOpenAddSystem(coordinates);
+    },
+    [addSystemBlockedReason, show],
+  );
 
   const handleSubmitAddSystem: SearchOnSubmitCallback = useCallback(
     async item => {
+      if (addSystemBlockedReason != null) {
+        show({ severity: 'warn', summary: '无法添加星系', detail: addSystemBlockedReason });
+        return;
+      }
+
       // Even if the system already exists on the map, still record the manual
       // add so it shows up in this user's subscription as a manually-added
       // isolated system (the backend add is idempotent), and center on it.
@@ -274,12 +322,16 @@ export const MapWrapper = () => {
         });
       }
 
+      // `view_mode` travels with the request because the server's own guard
+      // against adding while unsubscribed clusters are hidden only applies to
+      // the subscription view — in the global view every system is on screen,
+      // so the add is legitimate there even with the setting left on.
       await outCommand({
         type: OutCommand.manualAddSystem,
-        data: { coordinates: openAddSystem, solar_system_id: item.value },
+        data: { coordinates: openAddSystem, solar_system_id: item.value, view_mode: viewMode },
       });
     },
-    [openAddSystem, outCommand],
+    [openAddSystem, outCommand, addSystemBlockedReason, show, viewMode],
   );
 
   const handleOpenSettings = useCallback(() => {
@@ -309,6 +361,27 @@ export const MapWrapper = () => {
     const { systemContextProps } = ref.current;
     systemContextProps.systemId && setOpenCustomLabel(systemContextProps.systemId);
   }, []);
+
+  // Second phase of "Move System" is a right-click on empty canvas, so there is
+  // no visible control to back out of — Escape is the way out.
+  useHotkey(false, ['Escape'], (event: KeyboardEvent) => {
+    const targetWindow = (event.target as HTMLHtmlElement)?.closest(`[data-window-id="${MAP_ROOT_ID}"]`);
+
+    if (!targetWindow || ref.current.pendingMoveSystemId == null) {
+      return;
+    }
+
+    update({ pendingMoveSystemId: null });
+  });
+
+  // A move armed in one view has no meaning in the other: the destination the
+  // user picked maps to a different layout system (local vs shared), so the
+  // pending move is dropped rather than applied somewhere unexpected.
+  useEffect(() => {
+    if (ref.current.pendingMoveSystemId != null) {
+      update({ pendingMoveSystemId: null });
+    }
+  }, [viewMode, update]);
 
   useHotkey(false, ['Delete'], (event: KeyboardEvent) => {
     const targetWindow = (event.target as HTMLHtmlElement)?.closest(`[data-window-id="${MAP_ROOT_ID}"]`);
@@ -378,7 +451,20 @@ export const MapWrapper = () => {
         visibleSystemIds={visibleSystemIds}
         layoutPositions={layoutPositions}
         viewMode={viewMode}
+        addSystemBlockedReason={addSystemBlockedReason}
       />
+
+      {/* A pending move has no on-screen control of its own — its second phase is
+          a right-click on empty canvas — so without this the mode is invisible
+          and the user has no way to know a system is waiting to be placed. */}
+      {pendingMoveSystemId != null && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-3 py-1.5 rounded border border-amber-500/60 bg-stone-900/90 text-xs text-amber-200 shadow-lg pointer-events-none">
+          <span>
+            Moving <b>{moveSystemName}</b> — right-click an empty spot to place it.
+          </span>
+          <span className="text-stone-400">Esc to cancel</span>
+        </div>
+      )}
 
       {openSettings != null && (
         <SystemSettingsDialog systemId={openSettings} visible setVisible={() => setOpenSettings(null)} />

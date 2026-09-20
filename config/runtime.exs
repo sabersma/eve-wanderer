@@ -175,6 +175,14 @@ config :wanderer_app,
   wanderer_kills_service_enabled: wanderer_kills_service_enabled,
   wanderer_kills_base_url: wanderer_kills_base_url,
   map_subscriptions_enabled: map_subscriptions_enabled,
+  # How many systems a user may subscribe to. Members and viewers have separate
+  # limits; admins and managers on a map are unlimited. A bad value raises at
+  # boot, like the other numeric settings here, so a typo is caught by a failed
+  # deploy rather than by silently handing everyone the default.
+  subscription_limit_member:
+    System.get_env("WANDERER_SUBSCRIPTION_LIMIT_MEMBER", "10") |> String.to_integer(),
+  subscription_limit_viewer:
+    System.get_env("WANDERER_SUBSCRIPTION_LIMIT_VIEWER", "1") |> String.to_integer(),
   map_connection_auto_expire_hours: map_connection_auto_expire_hours,
   map_connection_auto_eol_hours: map_connection_auto_eol_hours,
   map_connection_eol_expire_timeout_mins: map_connection_eol_expire_timeout_mins,

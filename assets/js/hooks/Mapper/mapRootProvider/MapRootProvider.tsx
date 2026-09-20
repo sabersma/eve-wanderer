@@ -22,6 +22,7 @@ import {
 import { WindowsManagerOnChange } from '@/hooks/Mapper/components/ui-kit/WindowManager';
 import { DetailedKill } from '../types/kills';
 import {
+  INITIAL_USER_REMOTE_SETTINGS,
   InterfaceStoredSettings,
   KillsWidgetSettings,
   LocalWidgetSettings,
@@ -30,6 +31,8 @@ import {
   OnTheMapSettingsType,
   RoutesByType,
   RoutesType,
+  SubscribedSystem,
+  UserRemoteSettings,
 } from '@/hooks/Mapper/mapRootProvider/types.ts';
 import {
   DEFAULT_KILLS_WIDGET_SETTINGS,
@@ -49,6 +52,7 @@ import { computeVisibleSystemIds } from '@/hooks/Mapper/components/mapWrapper/ho
 export type ViewMode = 'all' | 'home';
 
 export type MapRootData = MapUnionTypes & {
+  userRemoteSettings: UserRemoteSettings;
   selectedSystems: string[];
   selectedConnections: Pick<SolarSystemConnection, 'source' | 'target'>[];
   linkSignatureToSystem: CommandLinkSignatureToSystem | null;
@@ -64,11 +68,19 @@ export type MapRootData = MapUnionTypes & {
   expiredCharacters: string[];
   viewMode: ViewMode;
   subscribedSystemIds: string[];
+  subscribedSystems: SubscribedSystem[];
   manuallyAddedSystemIds: string[];
+  /**
+   * Set by "Move System" on a system's context menu, cleared once the user
+   * picks a destination (or cancels). While it is set the canvas context menu
+   * offers "Move System <name> here".
+   */
+  pendingMoveSystemId: string | null;
   subscriptionLimit: number | null;
 };
 
 const INITIAL_DATA: MapRootData = {
+  userRemoteSettings: INITIAL_USER_REMOTE_SETTINGS,
   wormholesData: {},
   wormholes: [],
   effects: {},
@@ -115,7 +127,9 @@ const INITIAL_DATA: MapRootData = {
   expiredCharacters: [],
   viewMode: 'all',
   subscribedSystemIds: [],
+  subscribedSystems: [],
   manuallyAddedSystemIds: [],
+  pendingMoveSystemId: null,
   subscriptionLimit: null,
 };
 
@@ -272,8 +286,17 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
         ref.subscribedSystemIds,
         myCharSystemIds,
         ref.manuallyAddedSystemIds,
+        ref.userRemoteSettings.hide_unsubscribed_clusters,
       ),
-    [ref.systems, ref.connections, ref.viewMode, ref.subscribedSystemIds, myCharSystemIds, ref.manuallyAddedSystemIds],
+    [
+      ref.systems,
+      ref.connections,
+      ref.viewMode,
+      ref.subscribedSystemIds,
+      myCharSystemIds,
+      ref.manuallyAddedSystemIds,
+      ref.userRemoteSettings.hide_unsubscribed_clusters,
+    ],
   );
 
   // Role-based default view mode, applied once permissions are known.

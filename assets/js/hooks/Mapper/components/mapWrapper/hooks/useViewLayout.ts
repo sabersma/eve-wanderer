@@ -7,8 +7,13 @@ import {
   computeNewNodePosition,
   LayoutPositions,
 } from '@/hooks/Mapper/components/map/helpers/layout';
+import { claim, occupancyOfPositions } from '@/hooks/Mapper/components/map/helpers/occupancy';
 
-const LS_KEY = 'wanderer_view_layouts_v1';
+// v2: layouts are now packed collision-free. The version bump retires every
+// stored v1 layout so users get one clean, overlap-free re-layout instead of
+// keeping the collisions the old packing produced. The cost is that manual
+// drags made under v1 are forgotten (they can simply be redone).
+const LS_KEY = 'wanderer_view_layouts_v2';
 
 type ViewLayouts = Record<string, LayoutPositions>;
 
@@ -78,6 +83,12 @@ export function useViewLayout(
     // First entry: persist a full multi-root BFS layout.
     if (!stored || Object.keys(stored).length === 0) {
       const layout = computeMultiBfsLayout(subscribedSystemIds, filteredSystems, filteredConnections);
+
+      // Nothing to lay out yet — the subscribed systems are not in the map data
+      // at all. Storing an empty layout would make this branch re-enter on the
+      // next render, forever; waiting for the data is what breaks the cycle.
+      if (Object.keys(layout).length === 0) return;
+
       setViewLayouts(prev => ({ ...prev, [layoutKey]: layout }));
       return;
     }
@@ -117,16 +128,22 @@ export function useViewLayout(
       delete merged[id];
     });
 
-    missingIds.forEach(id => {
-      merged[id] = computeNewNodePosition(id, merged, filteredSystems, filteredConnections);
-    });
+    // One occupancy index for the whole batch, updated as each system is placed,
+    // so two systems added in the same server update cannot land on each other.
+    const occ = occupancyOfPositions(merged, new Set([...missingIds, ...relayoutIds]));
+
+    const place = (id: string) => {
+      const pos = computeNewNodePosition(id, merged, filteredSystems, filteredConnections, occ);
+      merged[id] = pos;
+      claim(occ, id, pos);
+    };
+
+    missingIds.forEach(place);
 
     relayoutIds.forEach(id => {
       delete merged[id];
     });
-    relayoutIds.forEach(id => {
-      merged[id] = computeNewNodePosition(id, merged, filteredSystems, filteredConnections);
-    });
+    relayoutIds.forEach(place);
 
     setViewLayouts(prev => ({ ...prev, [layoutKey]: merged }));
   }, [viewMode, layoutKey, subscribedSystemIds, filteredSystems, filteredConnections, viewLayouts, setViewLayouts]);
@@ -158,6 +175,13 @@ export function useViewLayout(
       filteredConnections,
       layoutPositions ?? undefined,
     );
+
+    // An empty result means no subscribed system is in the current data yet
+    // (`computeMultiBfsLayout` bails out when it has no roots). Writing it would
+    // wipe the stored layout and leave the user with a blank map; keeping what
+    // is there is the only useful answer, since there is nothing to rearrange.
+    if (Object.keys(layout).length === 0) return;
+
     setViewLayouts(prev => ({ ...prev, [layoutKey]: layout }));
   }, [layoutKey, subscribedSystemIds, filteredSystems, filteredConnections, layoutPositions, setViewLayouts]);
 

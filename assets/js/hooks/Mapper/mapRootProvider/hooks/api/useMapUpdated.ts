@@ -1,6 +1,10 @@
 import { useCallback, useRef } from 'react';
 import { CommandMapUpdated } from '@/hooks/Mapper/types/mapHandlers.ts';
 import { MapRootData, useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import {
+  INITIAL_USER_REMOTE_SETTINGS,
+  UserRemoteSettings,
+} from '@/hooks/Mapper/mapRootProvider/types.ts';
 
 export const useMapUpdated = () => {
   const { update } = useMapRootState();
@@ -41,12 +45,25 @@ export const useMapUpdated = () => {
       out.subscribedSystemIds = props.subscribed_system_ids;
     }
 
+    if ('subscribed_systems' in props) {
+      out.subscribedSystems = props.subscribed_systems;
+    }
+
     if ('manually_added_system_ids' in props) {
       out.manuallyAddedSystemIds = props.manually_added_system_ids;
     }
 
     if ('subscription_limit' in props) {
       out.subscriptionLimit = props.subscription_limit;
+    }
+
+    if ('user_settings' in props && props.user_settings) {
+      // Merged over the defaults so a key the server has not stored yet reads as
+      // its default rather than undefined.
+      out.userRemoteSettings = {
+        ...INITIAL_USER_REMOTE_SETTINGS,
+        ...(props.user_settings as Partial<UserRemoteSettings>),
+      };
     }
 
     if ('expired_characters' in props) {

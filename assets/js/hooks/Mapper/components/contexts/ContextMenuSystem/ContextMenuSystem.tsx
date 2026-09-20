@@ -23,6 +23,8 @@ export interface ContextMenuSystemProps {
   onWaypointSet: WaypointSetContextHandler;
   onRearrange(): void;
   onAddSignature(): void;
+  onMoveSystem(): void;
+  onSelectCluster(): void;
 }
 
 export const ContextMenuSystem: React.FC<ContextMenuSystemProps> = ({ contextMenuRef, ...props }) => {

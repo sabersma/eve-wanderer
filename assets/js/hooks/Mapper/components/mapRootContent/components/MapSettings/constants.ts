@@ -1,17 +1,19 @@
 import { InterfaceStoredSettingsProps } from '@/hooks/Mapper/mapRootProvider';
-import { AvailableThemes, MiniMapPlacement, PingsPlacement } from '@/hooks/Mapper/mapRootProvider/types.ts';
+import {
+  AvailableThemes,
+  INITIAL_USER_REMOTE_SETTINGS,
+  MiniMapPlacement,
+  PingsPlacement,
+} from '@/hooks/Mapper/mapRootProvider/types.ts';
 import { SettingsListItem, UserSettingsRemoteProps } from './types.ts';
 
-export const DEFAULT_REMOTE_SETTINGS = {
-  [UserSettingsRemoteProps.link_signature_on_splash]: false,
-  [UserSettingsRemoteProps.select_on_spash]: false,
-  [UserSettingsRemoteProps.delete_connection_with_sigs]: false,
-};
+export const DEFAULT_REMOTE_SETTINGS = INITIAL_USER_REMOTE_SETTINGS;
 
 export const UserSettingsRemoteList = [
   UserSettingsRemoteProps.link_signature_on_splash,
   UserSettingsRemoteProps.select_on_spash,
   UserSettingsRemoteProps.delete_connection_with_sigs,
+  UserSettingsRemoteProps.hide_unsubscribed_clusters,
 ];
 
 // export const COMMON_CHECKBOXES_PROPS: SettingsListItem[] = [
@@ -33,6 +35,10 @@ export const SYSTEMS_CHECKBOXES_PROPS: SettingsListItem[] = [
     label: 'Auto-select splashed',
     type: 'checkbox',
   },
+  // `hide_unsubscribed_clusters` is deliberately absent: the switch moved to
+  // the subscription bar in the topbar, where it is visible only in the view it
+  // applies to. It stays in `UserSettingsRemoteList`, which is what marks it as
+  // a server-side setting rather than a local one.
 ];
 
 export const SIGNATURES_CHECKBOXES_PROPS: SettingsListItem[] = [

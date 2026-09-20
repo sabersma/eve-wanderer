@@ -17,6 +17,7 @@ import { TooltipSize } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper/u
 import { LocalCounter } from '@/hooks/Mapper/components/map/components/LocalCounter';
 import { KillsCounter } from '@/hooks/Mapper/components/map/components/KillsCounter';
 import { useLocalCounter } from '@/hooks/Mapper/components/hooks/useLocalCounter.ts';
+import { OverlapBookmark } from './OverlapBookmark';
 
 // let render = 0;
 export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) => {
@@ -32,6 +33,8 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
     <>
       {nodeVars.visible && (
         <div className={classes.Bookmarks}>
+          <OverlapBookmark solarSystemId={nodeVars.solarSystemId} />
+
           {nodeVars.isShattered && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.shattered, '!pr-[2px]')}>
               <WdTooltipWrapper content="Shattered" position={TooltipPosition.top}>

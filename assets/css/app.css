@@ -1100,3 +1100,75 @@ body > div:first-of-type {
   border-color: #44403c;
   color: #e7e5e4;
 }
+
+/* ---------------------------------------------------------------
+   Manual screenshot zoom — see assets/js/hooks/imageZoom.ts
+
+   The rendered manuals are injected as raw HTML, so screenshots get
+   their click affordance from here rather than per-image attributes.
+   --------------------------------------------------------------- */
+
+.manual-body img {
+  cursor: zoom-in;
+}
+
+.image-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: none;
+  background-color: rgba(0, 0, 0, 0.92);
+  overscroll-behavior: contain;
+}
+
+.image-zoom--open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  overflow: auto;
+}
+
+.image-zoom img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 0.375rem;
+  cursor: zoom-in;
+}
+
+/* Second click: 100% actual size. flex-start keeps the top-left corner
+   reachable once the image is wider than the viewport — centering in an
+   overflowing flex container puts the start edge out of scroll range. */
+.image-zoom--actual {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.image-zoom--actual img {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+
+.image-zoom__close {
+  position: fixed;
+  top: 0.75rem;
+  right: 1rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background-color: rgba(41, 37, 36, 0.9);
+  color: #e7e5e4;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.image-zoom__close:hover {
+  background-color: rgba(68, 64, 60, 0.95);
+  color: #fff;
+}

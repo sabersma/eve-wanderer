@@ -6,6 +6,7 @@ import LocalStorageSetting from './localStorageSetting';
 import Ping from './ping';
 import CopyToClipboard from './copyToClipboard';
 import DownloadJson from './downloadJson';
+import ImageZoom from './imageZoom';
 import NewVersionUpdate from './newVersionUpdate';
 import MapAction from './maps/mapAction';
 import ShowCharactersAddAlert from './showCharactersAddAlert';
@@ -21,6 +22,7 @@ export default {
   LocalStorageSetting,
   Ping,
   CopyToClipboard,
+  ImageZoom,
   NewVersionUpdate,
   ShowCharactersAddAlert,
   WysiwygEditor,

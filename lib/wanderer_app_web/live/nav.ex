@@ -7,6 +7,8 @@ defmodule WandererAppWeb.Nav do
   alias WandererAppWeb.{
     AccessListsLive,
     CharacterProfileLive,
+    HelpLive,
+    MapAuditLive,
     MapLive,
     MapsLive,
     CharactersLive,
@@ -70,6 +72,9 @@ defmodule WandererAppWeb.Nav do
 
         {CharactersTrackingLive, _} ->
           :characters_tracking
+
+        {HelpLive, _} ->
+          :help
 
         {_, _} ->
           nil

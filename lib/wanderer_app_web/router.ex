@@ -564,6 +564,9 @@ defmodule WandererAppWeb.Router do
       live "/profile", ProfileLive, :index
       live "/profile/deposit", ProfileLive, :deposit
       live "/profile/subscribe", ProfileLive, :subscribe
+      live "/help", HelpLive, :index
+      # NOTE: the "/:slug" routes below are single-segment catch-alls. Anything
+      # added above them that is also a single segment has to stay above them.
       live "/:slug/audit", MapAuditLive, :index
       live "/:slug/characters", MapCharactersLive, :index
       live "/:slug", MapLive, :index

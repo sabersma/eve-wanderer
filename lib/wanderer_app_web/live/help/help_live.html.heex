@@ -1,0 +1,38 @@
+<%!--
+  The :live layout's own <main> is overflow-hidden, so this container owns the
+  scrolling and keeps the tab bar in view on a page this long. pl-20 clears the
+  left icon rail (w-14), matching the sponsors page.
+--%>
+<main class="w-full h-full p-4 pl-20 pb-20 overflow-auto">
+  <div class="w-full max-w-5xl mx-auto ccp-font">
+    <div class="sticky top-0 z-10 flex flex-wrap gap-2 py-3 mb-4 bg-stone-950/95 backdrop-blur">
+      <button
+        :for={tab <- @tabs}
+        phx-click="switch_tab"
+        phx-value-tab={tab.id}
+        class={[
+          "px-4 py-2 rounded-lg text-sm ccp-font transition-colors",
+          if(@tab == tab.id,
+            do: "bg-sky-600 text-white",
+            else: "bg-neutral-800/70 text-stone-300 hover:bg-neutral-700/70"
+          )
+        ]}
+      >
+        {tab.label}
+      </button>
+    </div>
+
+    <%!--
+      The manual carries its own <h1>, so the page does not add a second one.
+      The ImageZoom hook needs an id, and matches screenshots by delegation, so
+      it keeps working when the tab swap replaces this element's contents.
+    --%>
+    <article
+      id="manual-body"
+      phx-hook="ImageZoom"
+      class="manual-body prose prose-lg prose-invert ccp-font max-w-none bg-neutral-900/60 text-stone-200 px-6 py-6 rounded-lg"
+    >
+      {raw(Manual.html(@tab))}
+    </article>
+  </div>
+</main>

@@ -204,6 +204,7 @@ defmodule WandererAppWeb.Layouts do
             tabindex="0"
             class="menu menu-sm dropdown-content bg-base-100 rounded-box z-[1] mt-3 w-52 p-2 shadow"
           >
+            <li><a href="/help">Help</a></li>
             <li><a href="/changelog">Changelog</a></li>
             <li><a href="/news">News</a></li>
             <li :if={@map_subscriptions_enabled}><a href="/sponsors">Sponsors</a></li>

@@ -17,6 +17,7 @@ import { useCallback } from 'react';
 import classes from './CharacterCard.module.scss';
 import { ZKB_ICON } from '@/hooks/Mapper/icons';
 import { charEveWhoLink, charZKBLink } from '@/hooks/Mapper/helpers/linkHelpers.ts';
+import { getAffiliationLabel } from '@/hooks/Mapper/helpers/affiliationTickers.ts';
 import { WdCharStateWrapper } from '../../characters/components';
 
 export type CharacterCardProps = {
@@ -73,7 +74,7 @@ export const CharacterCard = ({
   }, [char]);
 
   const shipNameText = char.ship?.ship_name ? getShipName(char.ship.ship_name) : '';
-  const tickerText = char.alliance_id ? char.alliance_ticker : char.corporation_ticker;
+  const tickerText = getAffiliationLabel(char);
   const shipType = char.ship?.ship_type_info?.name;
   const locationShown = showSystem && char.location?.solar_system_id;
 
@@ -118,7 +119,7 @@ export const CharacterCard = ({
               >
                 {char.name}
               </span>
-              {showTicker && <span className="flex-shrink-0 text-gray-400 ml-1">[{tickerText}]</span>}
+              {showTicker && <span className="flex-shrink-0 text-gray-400 ml-1">{tickerText}</span>}
             </div>
           </div>
         </div>
@@ -164,7 +165,7 @@ export const CharacterCard = ({
               >
                 {char.name}
               </span>
-              {showTicker && <span className="flex-shrink-0 text-gray-400 ml-1">[{tickerText}]</span>}
+              {showTicker && <span className="flex-shrink-0 text-gray-400 ml-1">{tickerText}</span>}
             </div>
           </div>
 
@@ -282,7 +283,7 @@ export const CharacterCard = ({
             >
               {char.name}
             </span>
-            {showTicker && <span className="flex-shrink-0 text-gray-400 ml-1">[{tickerText}]</span>}
+            {showTicker && <span className="flex-shrink-0 text-gray-400 ml-1">{tickerText}</span>}
 
             <div className={clsx('flex gap-1 items-center h-full ml-[6px]')}>
               <WdImgButton

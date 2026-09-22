@@ -7,6 +7,7 @@ import { kgToTons } from '@/hooks/Mapper/utils/kgToTons.ts';
 import { MouseEvent, useCallback, useMemo, useState } from 'react';
 import { ZKB_ICON } from '@/hooks/Mapper/icons';
 import { charEveWhoLink, charZKBLink } from '@/hooks/Mapper/helpers/linkHelpers.ts';
+import { getAffiliationLabel } from '@/hooks/Mapper/helpers/affiliationTickers.ts';
 import { getShipName } from './getShipName.ts';
 
 type PassageCardType = {
@@ -111,8 +112,7 @@ export const PassageCard = ({
                 </span>
 
                 <div className="h-3 border-r border-neutral-500 my-0.5"></div>
-                {char.alliance_ticker && <span className="text-neutral-400">{char.alliance_ticker}</span>}
-                {!char.alliance_ticker && <span className="text-neutral-400">{char.corporation_ticker}</span>}
+                <span className="text-neutral-400">{getAffiliationLabel(char)}</span>
 
                 <div className={clsx('flex gap-1 items-center h-full ml-[2px]')}>
                   <WdImgButton

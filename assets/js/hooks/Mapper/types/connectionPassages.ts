@@ -2,7 +2,7 @@ import { CharacterTypeRaw, ShipTypeRaw } from '@/hooks/Mapper/types/character.ts
 
 export type PassageLimitedCharacterType = Pick<
   CharacterTypeRaw,
-  'alliance_ticker' | 'corporation_ticker' | 'eve_id' | 'name'
+  'alliance_id' | 'alliance_ticker' | 'corporation_id' | 'corporation_ticker' | 'eve_id' | 'name'
 >;
 
 export type Passage = {

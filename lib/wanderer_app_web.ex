@@ -103,6 +103,7 @@ defmodule WandererAppWeb do
       # Core UI components and translation
       import WandererAppWeb.CoreComponents
       import WandererAppWeb.Gettext
+      import WandererAppWeb.Helpers.Affiliation
       import WandererAppWeb.Helpers.CSP
 
       # Shortcut for generating JS commands

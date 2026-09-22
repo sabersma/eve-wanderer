@@ -15,6 +15,7 @@ import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit';
 import classes from './KillRowDetail.module.scss';
 import { TooltipPosition } from '@/hooks/Mapper/components/ui-kit';
 import { WithClassName } from '@/hooks/Mapper/types/common.ts';
+import { getAffiliationLabel } from '@/hooks/Mapper/helpers/affiliationTickers.ts';
 
 export type CompactKillRowProps = {
   killDetails?: DetailedKill | null;
@@ -76,8 +77,13 @@ export const KillRowDetail = ({ killDetails, systemName, onlyOneSystem, classNam
 
   const attackerIsNpc = safeFinalBlowCharId === 0;
 
-  // Define victim affiliation ticker.
-  const victimAffiliationTicker = safeVictimAllianceTicker || safeVictimCorpTicker || 'No Ticker';
+  // Define victim affiliation tickers: [corp][alliance].
+  const victimAffiliationTicker = getAffiliationLabel({
+    corporation_id: safeVictimCorpId,
+    corporation_ticker: safeVictimCorpTicker,
+    alliance_id: safeVictimAllianceId,
+    alliance_ticker: safeVictimAllianceTicker,
+  });
 
   const killValueFormatted = safeTotalValue != null && safeTotalValue > 0 ? `${formatISK(safeTotalValue)} ISK` : null;
   const killTimeAgo = safeKillTime ? formatTimeMixed(safeKillTime) : '0h ago';
@@ -137,8 +143,13 @@ export const KillRowDetail = ({ killDetails, systemName, onlyOneSystem, classNam
         .filter(Boolean)
         .join(' / ');
 
-  // Define attackerTicker to use the alliance ticker if available, otherwise the corp ticker.
-  const attackerTicker = attackerIsNpc ? '' : safeFinalBlowAllianceTicker || safeFinalBlowCorpTicker || '';
+  // Define attackerTicker as [corp][alliance]; NPC attackers have no affiliation row at all.
+  const attackerTicker = getAffiliationLabel({
+    corporation_id: safeFinalBlowCorpId,
+    corporation_ticker: safeFinalBlowCorpTicker,
+    alliance_id: safeFinalBlowAllianceId,
+    alliance_ticker: safeFinalBlowAllianceTicker,
+  });
 
   // For the attacker image link: if the attacker is not an NPC, link to the character page; otherwise, link to the kill page.
   const attackerLink = attackerIsNpc ? zkillLink('kill', safeKillmailId) : zkillLink('character', safeFinalBlowCharId);
@@ -190,7 +201,7 @@ export const KillRowDetail = ({ killDetails, systemName, onlyOneSystem, classNam
       <div className="flex flex-col ml-2 flex-1 min-w-0 overflow-hidden leading-[1rem]">
         <div className="truncate text-stone-200">
           {safeVictimCharName}
-          <span className="text-stone-400"> / {victimAffiliationTicker}</span>
+          <span className="ml-1 text-stone-400">{victimAffiliationTicker}</span>
         </div>
         <div className="truncate text-stone-300 flex items-center gap-1">
           <span className="text-stone-400 overflow-hidden text-ellipsis whitespace-nowrap max-w-[140px]">
@@ -206,10 +217,10 @@ export const KillRowDetail = ({ killDetails, systemName, onlyOneSystem, classNam
       </div>
       <div className="flex items-center ml-auto gap-2">
         <div className="flex flex-col items-end flex-1 min-w-0 overflow-hidden text-right leading-[1rem]">
-          {!attackerIsNpc && (safeFinalBlowCharName || attackerTicker) && (
+          {!attackerIsNpc && (safeFinalBlowCharName || safeFinalBlowAllianceTicker || safeFinalBlowCorpTicker) && (
             <div className="truncate text-stone-200">
               {safeFinalBlowCharName}
-              {!attackerIsNpc && attackerTicker && <span className="ml-1 text-stone-400">/ {attackerTicker}</span>}
+              <span className="ml-1 text-stone-400">{attackerTicker}</span>
             </div>
           )}
           <div className="truncate text-stone-400">

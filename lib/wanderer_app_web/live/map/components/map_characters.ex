@@ -61,12 +61,7 @@ defmodule WandererAppWeb.MapCharacters do
         </div>
       </div>
       <span class="whitespace-nowrap">{@character.name}</span>
-      <span :if={@character.alliance_ticker} class="whitespace-nowrap">
-        [{@character.alliance_ticker}]
-      </span>
-      <span :if={@character.corporation_ticker} class="whitespace-nowrap">
-        [{@character.corporation_ticker}]
-      </span>
+      <span class="whitespace-nowrap">{affiliation_label(@character)}</span>
 
       <span :if={is_online?(@character.id)} class="text-green-500 rounded-full px-2 py-1">
         Online

@@ -57,3 +57,8 @@ config :phoenix, :plug_init_mode, :runtime
 config :mime, :types, %{
   "application/xml" => ["xml"]
 }
+
+# Disable tzdata autoupdate to avoid HTTP crashes (same reason as config/dev.exs).
+# Without this the updater calls data.iana.org on startup and, when the request
+# fails, the whole VM goes down mid test run.
+config :tzdata, :autoupdate, :disabled

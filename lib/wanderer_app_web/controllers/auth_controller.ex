@@ -54,9 +54,9 @@ defmodule WandererAppWeb.AuthController do
 
           WandererApp.Character.update_character(character.id, character_update)
 
-          # Clear the invalid_grant counter so stale failures don't cause
+          # Clear the invalid_grant strikes so stale failures don't cause
           # premature token invalidation after a successful re-auth
-          WandererApp.Cache.delete("character:#{character.id}:invalid_grant_count")
+          WandererApp.Esi.ApiClient.clear_invalid_grant_strikes(character.id)
 
           # Set a grace period to protect fresh tokens from being wiped by
           # in-flight or immediately-subsequent invalid_grant errors

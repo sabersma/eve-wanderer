@@ -131,36 +131,33 @@ defmodule WandererApp.Character.Tracker do
 
     # 403 (missing scope) and 404 (character gone) are persistent: surface them
     # to the user as needing re-authorization instead of silently backing off.
+    #
+    # `:token_refresh_failed` is deliberately NOT in this list. It means the OAuth
+    # refresh call failed - typically because EVE SSO itself is having trouble - and
+    # treating it as a permission problem flagged healthy characters as needing
+    # re-authorization for the duration of an upstream outage.
     if error_type in [:forbidden, :not_found] do
-      set_needs_reauth(character_id, true)
+      Logger.info("ESI_ERROR: persistent error, flagging character as needing re-auth",
+        character_id: character_id,
+        endpoint: endpoint,
+        error_type: error_type,
+        backoff_seconds: div(ttl, 1000)
+      )
+
+      WandererApp.Character.set_needs_reauth(character_id, true)
+    else
+      Logger.debug(
+        fn ->
+          "ESI_ERROR: transient error, backing off without re-auth flag"
+        end,
+        character_id: character_id,
+        endpoint: endpoint,
+        error_type: error_type,
+        backoff_seconds: div(ttl, 1000)
+      )
     end
 
     ttl
-  end
-
-  # Persist the needs_reauth flag to the DB (and mirror it in the character
-  # cache), skipping the write when the value hasn't changed.
-  defp set_needs_reauth(character_id, value) do
-    case WandererApp.Api.Character.by_id(character_id) do
-      {:ok, %{eve_id: eve_id} = character} ->
-        if character.needs_reauth != value do
-          with {:ok, _} <-
-                 WandererApp.Api.Character.update_needs_reauth(character, %{needs_reauth: value}) do
-            WandererApp.Character.update_character(character_id, %{needs_reauth: value})
-
-            # Notify open map LiveViews (subscribed to "character:#{eve_id}") so the
-            # expired-characters badge refreshes without a full map reload.
-            @pubsub_client.broadcast(
-              WandererApp.PubSub,
-              "character:#{eve_id}",
-              :character_needs_reauth
-            )
-          end
-        end
-
-      _ ->
-        :ok
-    end
   end
 
   def update_settings(character_id, track_settings) do
@@ -269,7 +266,8 @@ defmodule WandererApp.Character.Tracker do
 
                 :ok
 
-              {:error, error} when error in [:forbidden, :not_found, :timeout] ->
+              {:error, error}
+              when error in [:forbidden, :not_found, :timeout, :token_refresh_failed] ->
                 backoff_forbidden(character_id, :online, error)
 
                 if is_nil(
@@ -452,7 +450,8 @@ defmodule WandererApp.Character.Tracker do
 
                 :ok
 
-              {:error, error} when error in [:forbidden, :not_found, :timeout] ->
+              {:error, error}
+              when error in [:forbidden, :not_found, :timeout, :token_refresh_failed] ->
                 backoff_forbidden(character_id, :ship, error)
 
                 if is_nil(WandererApp.Cache.lookup!("character:#{character_id}:ship_error_time")) do
@@ -555,7 +554,8 @@ defmodule WandererApp.Character.Tracker do
 
                 :ok
 
-              {:error, error} when error in [:forbidden, :not_found, :timeout] ->
+              {:error, error}
+              when error in [:forbidden, :not_found, :timeout, :token_refresh_failed] ->
                 backoff_forbidden(character_id, :location, error)
 
                 Logger.warning("ESI_ERROR: Character location tracking failed",
@@ -671,7 +671,8 @@ defmodule WandererApp.Character.Tracker do
 
                     :ok
 
-                  {:error, error} when error in [:forbidden, :not_found, :timeout] ->
+                  {:error, error}
+                  when error in [:forbidden, :not_found, :timeout, :token_refresh_failed] ->
                     Logger.warning("ESI_ERROR: Character wallet tracking failed",
                       character_id: character_id,
                       tracking_pool: tracking_pool,

@@ -83,6 +83,17 @@ defmodule WandererApp.Ueberauth.Strategy.Eve do
           {:ok, token} ->
             fetch_user(conn, token)
 
+          # EVE SSO is behind Cloudflare, which answers with HTML/text errors such as
+          # `error code: 526` when CCP's origin is unhealthy. There is no OAuth error
+          # code to show, so surface a retryable message instead of a 500.
+          {:error, {:http_error, status, _body}} ->
+            set_errors!(conn, [
+              error(
+                "http_error",
+                "EVE SSO is temporarily unavailable (HTTP #{status}). Please try again in a moment."
+              )
+            ])
+
           {:error, {error_code, error_description}} ->
             set_errors!(conn, [error(error_code, error_description)])
         end

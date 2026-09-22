@@ -50,6 +50,41 @@ defmodule WandererApp.Esi.ApiClient do
     Cache.put(@esi_blackout_cache_key, true, ttl: :timer.seconds(reset_seconds + 1))
   end
 
+  # --- EVE SSO refresh resilience ---
+  # SSO is a different host from ESI (login.eveonline.com, behind Cloudflare) and fails
+  # independently. When it wobbles, every tracked character fails at once, which used to
+  # look like N unrelated character faults. These keys aggregate those failures into a
+  # single recognised outage.
+  @sso_degraded_cache_key "sso:refresh:degraded"
+  @sso_window_failures_key "sso:refresh:window_failures"
+  @sso_window_marker_prefix "sso:refresh:window:"
+  # Distinct characters that must fail within the window before it counts as an outage.
+  @sso_degraded_character_threshold 5
+  # Rolling window in which those distinct characters must fail.
+  @sso_window_ttl :timer.minutes(3)
+  # How long refreshes are deferred once the outage is detected. It doubles as the
+  # half-open probe interval: when it lapses a single attempt goes through.
+  @sso_degraded_ttl :timer.minutes(3)
+  # The failure count deliberately outlives the flag above, so the one probe that gets
+  # through after each window is enough to re-arm the breaker. Without the longer TTL
+  # every probe would need a fresh burst of failures to trip it again. The cost is that
+  # the breaker stays trigger-happy for a few minutes after an outage ends, which delays
+  # refreshes (by one probe window) rather than risking another wave.
+  @sso_window_failures_ttl :timer.minutes(10)
+
+  # `invalid_grant` strikes must be spread over time before a token is called dead. The
+  # previous "3 consecutive failures" rule counted a strike per *refresh call*, and
+  # several tracking endpoints refresh the same character within one tick, so a single
+  # bad second could reach the quota and destroy a perfectly healthy token.
+  @invalid_grant_strikes 3
+  @invalid_grant_min_span_minutes 30
+  @invalid_grant_strikes_ttl :timer.hours(2)
+
+  # Once a character is confirmed to need re-authorization, probe at most this often.
+  # Bounds the traffic a genuinely dead refresh token can generate while still letting
+  # the character heal itself if SSO recovers (or the invalid_grant was a false alarm).
+  @reauth_probe_ttl :timer.hours(1)
+
   defp emit_esi_error(path, error_type) do
     :telemetry.execute(
       [:wanderer_app, :esi, :error],
@@ -810,13 +845,116 @@ defmodule WandererApp.Esi.ApiClient do
             pool
           )
 
-        {:error, _error} ->
-          {:error, status}
+        {:error, error} ->
+          # Report a refresh failure as its own error type. Returning the ESI `status`
+          # here (usually `:forbidden`) made the tracker read an SSO outage as a
+          # permission problem and flag healthy characters as needing re-authorization.
+          Logger.warning("TOKEN_REFRESH_FAILED: request aborted, no usable access token",
+            character_id: character_id,
+            path: path,
+            error_type: "token_refresh_failed",
+            error: inspect(error)
+          )
+
+          {:error, :token_refresh_failed}
       end
     end
   end
 
   defp refresh_token(character_id) do
+    cond do
+      sso_degraded?() ->
+        # A wide SSO outage is in progress. Calling the token endpoint now would only add
+        # load to a struggling host and collect more strikes against healthy characters.
+        Logger.warning("TOKEN_REFRESH_DEFERRED: SSO degraded window active",
+          character_id: character_id,
+          error_type: "sso_degraded",
+          window_failures: Cache.lookup!(@sso_window_failures_key, 0)
+        )
+
+        {:error, :token_refresh_failed}
+
+      reauth_probe_deferred?(character_id) ->
+        Logger.debug(
+          fn ->
+            "TOKEN_REFRESH_DEFERRED: character awaits re-authorization, probe deferred"
+          end,
+          character_id: character_id,
+          error_type: "needs_reauth"
+        )
+
+        {:error, :token_refresh_failed}
+
+      true ->
+        single_flight_refresh(character_id)
+    end
+  end
+
+  # Serializes refresh attempts per character (per node). One character can have several
+  # tracking endpoints scheduled around the same tick; they used to issue one token
+  # request each. Now the first refreshes and the rest reuse the resulting token.
+  defp single_flight_refresh(character_id) do
+    lock = {{:token_refresh, character_id}, self()}
+
+    case :global.trans(lock, fn -> locked_refresh(character_id) end, [node()], 3) do
+      :aborted ->
+        Logger.warning("TOKEN_REFRESH_DEFERRED: refresh already in flight",
+          character_id: character_id,
+          error_type: "refresh_in_flight"
+        )
+
+        {:error, :token_refresh_failed}
+
+      result ->
+        result
+    end
+  end
+
+  defp locked_refresh(character_id) do
+    case current_token(character_id) do
+      {:ok, token} ->
+        # Someone refreshed while we waited for the lock - reuse their token instead of
+        # spending another SSO request (and another strike) on it.
+        Logger.debug(
+          fn -> "TOKEN_REFRESH_SKIPPED: reusing access token refreshed concurrently" end,
+          character_id: character_id,
+          error_type: "token_reused"
+        )
+
+        {:ok, token}
+
+      :expired ->
+        do_refresh_token(character_id)
+    end
+  end
+
+  # Re-reads the character inside the lock so a concurrent refresh is not repeated.
+  defp current_token(character_id) do
+    case WandererApp.Character.get_character(character_id) do
+      {:ok,
+       %{
+         access_token: access_token,
+         refresh_token: refresh_token,
+         expires_at: expires_at
+       }}
+      when not is_nil(access_token) and is_integer(expires_at) ->
+        if expires_at - DateTime.to_unix(DateTime.utc_now()) > 0 do
+          {:ok,
+           %OAuth2.AccessToken{
+             access_token: access_token,
+             refresh_token: refresh_token,
+             expires_at: expires_at
+           }}
+        else
+          :expired
+        end
+
+      _ ->
+        :expired
+    end
+  end
+
+  defp do_refresh_token(character_id) do
     {:ok,
      %{
        expires_at: expires_at,
@@ -834,8 +972,108 @@ defmodule WandererApp.Esi.ApiClient do
         token: %OAuth2.AccessToken{refresh_token: refresh_token}
       )
 
-    handle_refresh_token_result(refresh_token_result, character, character_id, expires_at, scopes)
+    result =
+      handle_refresh_token_result(
+        refresh_token_result,
+        character,
+        character_id,
+        expires_at,
+        scopes
+      )
+
+    record_sso_failure(character_id, result)
+
+    result
   end
+
+  # Aggregates refresh failures across characters so a wide SSO outage is recognised as
+  # one event rather than many independent character faults.
+  @doc false
+  def record_sso_failure(character_id, {:error, error_type}) do
+    marker = "#{@sso_window_marker_prefix}#{character_id}"
+
+    if Cache.has_key?(marker) do
+      # Already counted for this character in the current window.
+      :ok
+    else
+      Cache.put(marker, true, ttl: @sso_window_ttl)
+
+      failures = Cache.lookup!(@sso_window_failures_key, 0) + 1
+      Cache.put(@sso_window_failures_key, failures, ttl: @sso_window_failures_ttl)
+
+      Logger.info("SSO_REFRESH_FAILURE: token refresh failed",
+        character_id: character_id,
+        error_type: to_string(error_type),
+        window_failures: failures
+      )
+
+      if failures >= @sso_degraded_character_threshold do
+        mark_sso_degraded(failures)
+      end
+    end
+
+    :ok
+  end
+
+  def record_sso_failure(_character_id, _result), do: :ok
+
+  defp mark_sso_degraded(failures) do
+    if sso_degraded?() do
+      :ok
+    else
+      Logger.warning("SSO_DEGRADED: deferring token refreshes until SSO recovers",
+        error_type: "sso_degraded",
+        window_failures: failures,
+        degraded_for_seconds: div(@sso_degraded_ttl, 1000)
+      )
+
+      :telemetry.execute([:wanderer_app, :token, :sso_degraded], %{count: 1}, %{
+        window_failures: failures
+      })
+
+      Cache.put(@sso_degraded_cache_key, true, ttl: @sso_degraded_ttl)
+    end
+
+    :ok
+  end
+
+  @doc false
+  def sso_degraded?, do: Cache.has_key?(@sso_degraded_cache_key)
+
+  defp reauth_probe_deferred?(character_id), do: Cache.has_key?(reauth_probe_key(character_id))
+
+  defp reauth_probe_key(character_id), do: "character:#{character_id}:needs_reauth_probe"
+
+  @doc false
+  # A token is only treated as dead once enough strikes have accumulated *and* they span
+  # long enough that a single outage window cannot account for all of them.
+  def invalid_grant_confirmed?(count, span_minutes) do
+    count >= @invalid_grant_strikes and span_minutes >= @invalid_grant_min_span_minutes
+  end
+
+  # Returns {count, first_strike_at} for the current strike window.
+  @doc false
+  def record_invalid_grant_strike(character_id) do
+    key = invalid_grant_strikes_key(character_id)
+    now = DateTime.utc_now()
+
+    case Cache.lookup!(key) do
+      %{count: count, first_at: first_at} ->
+        Cache.put(key, %{count: count + 1, first_at: first_at}, ttl: @invalid_grant_strikes_ttl)
+        {count + 1, first_at}
+
+      _ ->
+        Cache.put(key, %{count: 1, first_at: now}, ttl: @invalid_grant_strikes_ttl)
+        {1, now}
+    end
+  end
+
+  defp invalid_grant_strikes_key(character_id),
+    do: "character:#{character_id}:invalid_grant_strikes"
+
+  @doc false
+  def clear_invalid_grant_strikes(character_id),
+    do: Cache.delete(invalid_grant_strikes_key(character_id))
 
   defp handle_refresh_token_result(
          {:ok, %OAuth2.AccessToken{} = token},
@@ -857,8 +1095,8 @@ defmodule WandererApp.Esi.ApiClient do
       new_expires_at: token.expires_at
     )
 
-    # Clear any previous invalid_grant failure counter on successful refresh
-    WandererApp.Cache.delete("character:#{character_id}:invalid_grant_count")
+    # Clear any previous invalid_grant strikes on successful refresh
+    clear_invalid_grant_strikes(character_id)
 
     {:ok, _character} =
       character
@@ -872,6 +1110,19 @@ defmodule WandererApp.Esi.ApiClient do
       access_token: token.access_token,
       expires_at: token.expires_at
     })
+
+    # A working refresh proves the credentials are healthy, so retract any earlier
+    # "needs re-authorization" verdict - it can only have come from a transient SSO
+    # fault, and leaving it set would keep prompting the user to re-auth for nothing.
+    if Map.get(character, :needs_reauth, false) do
+      Logger.info("TOKEN_REFRESH_RECOVERED: clearing stale needs_reauth flag",
+        character_id: character_id,
+        error_type: "needs_reauth_cleared"
+      )
+
+      Cache.delete(reauth_probe_key(character_id))
+      WandererApp.Character.set_needs_reauth(character_id, false)
+    end
 
     Phoenix.PubSub.broadcast(
       WandererApp.PubSub,
@@ -887,17 +1138,17 @@ defmodule WandererApp.Esi.ApiClient do
          character,
          character_id,
          expires_at,
-         scopes
+         _scopes
        ) do
     expires_at_datetime = DateTime.from_unix!(expires_at)
     time_since_expiry = DateTime.diff(DateTime.utc_now(), expires_at_datetime, :second)
 
-    # Track consecutive invalid_grant failures before permanently invalidating tokens.
-    # EVE SSO can return invalid_grant for transient server issues, so we require
-    # 3 consecutive failures before wiping tokens.
-    fail_key = "character:#{character_id}:invalid_grant_count"
-    count = WandererApp.Cache.lookup!(fail_key, 0) + 1
-    WandererApp.Cache.put(fail_key, count, ttl: :timer.hours(2))
+    # EVE SSO also returns invalid_grant for transient server issues, so strikes must be
+    # spread over time before the credentials are declared dead. Counting raw failures is
+    # not enough: several tracking endpoints refresh the same character within one tick,
+    # so a single bad response could otherwise fill the quota on its own.
+    {count, first_at} = record_invalid_grant_strike(character_id)
+    span_minutes = DateTime.diff(DateTime.utc_now(), first_at, :minute)
 
     # Emit telemetry for token refresh failures
     :telemetry.execute([:wanderer_app, :token, :refresh_failed], %{count: 1}, %{
@@ -906,23 +1157,27 @@ defmodule WandererApp.Esi.ApiClient do
       time_since_expiry: time_since_expiry
     })
 
-    if count >= 3 do
+    if invalid_grant_confirmed?(count, span_minutes) do
       Logger.warning(
-        "TOKEN_REFRESH_FAILED: Invalid grant error (#{count}/3, invalidating tokens)",
+        "TOKEN_REFRESH_FAILED: Invalid grant confirmed, flagging for re-authorization",
         character_id: character_id,
         error_message: error_message,
+        strike_count: count,
+        strike_span_minutes: span_minutes,
         time_since_expiry_seconds: time_since_expiry,
         original_expires_at: expires_at
       )
 
-      WandererApp.Cache.delete(fail_key)
-      invalidate_character_tokens(character, character_id, expires_at, scopes)
+      clear_invalid_grant_strikes(character_id)
+      flag_character_for_reauth(character, character_id)
       {:error, :invalid_grant}
     else
       Logger.warning(
-        "TOKEN_REFRESH_FAILED: Invalid grant error (#{count}/3, deferring invalidation)",
+        "TOKEN_REFRESH_FAILED: Invalid grant deferred, strikes not yet spread over time",
         character_id: character_id,
         error_message: error_message,
+        strike_count: count,
+        strike_span_minutes: span_minutes,
         time_since_expiry_seconds: time_since_expiry,
         original_expires_at: expires_at
       )
@@ -983,6 +1238,36 @@ defmodule WandererApp.Esi.ApiClient do
     {:error, :token_refresh_failed}
   end
 
+  # EVE SSO answered with an HTTP error that carries no OAuth error document, e.g.
+  # Cloudflare's plain-text `error code: 526`. This is an upstream condition and is
+  # transient, so tokens are kept and the character retries on its next cycle.
+  defp handle_refresh_token_result(
+         {:error, {:http_error, status, body}},
+         _character,
+         character_id,
+         expires_at,
+         _scopes
+       ) do
+    time_since_expiry =
+      DateTime.diff(DateTime.utc_now(), DateTime.from_unix!(expires_at), :second)
+
+    Logger.warning("TOKEN_REFRESH_FAILED: EVE SSO returned HTTP #{status} during token refresh",
+      character_id: character_id,
+      http_status: status,
+      error_message: body,
+      time_since_expiry_seconds: time_since_expiry
+    )
+
+    :telemetry.execute([:wanderer_app, :token, :refresh_failed], %{count: 1}, %{
+      character_id: character_id,
+      error_type: "http_error",
+      http_status: status,
+      time_since_expiry: time_since_expiry
+    })
+
+    {:error, :token_refresh_failed}
+  end
+
   defp handle_refresh_token_result(error, _character, character_id, expires_at, _scopes) do
     time_since_expiry =
       DateTime.diff(DateTime.utc_now(), DateTime.from_unix!(expires_at), :second)
@@ -1002,47 +1287,53 @@ defmodule WandererApp.Esi.ApiClient do
     {:error, :token_refresh_failed}
   end
 
-  defp invalidate_character_tokens(character, character_id, expires_at, scopes) do
-    # Skip invalidation if the character was recently re-authorized via SSO.
-    # This protects fresh tokens from being wiped by transient invalid_grant
-    # errors that can occur shortly after re-auth.
-    if WandererApp.Cache.lookup!("character:#{character_id}:reauth_grace", false) do
+  # Confirmed `invalid_grant`: the credentials are treated as dead, but the tokens are
+  # deliberately *kept*. Wiping them turned a transient SSO fault into a state the user
+  # had to fix by hand; keeping them lets the character heal on its own once SSO recovers
+  # (the success path retracts the flag), while the flag still raises the re-authorize
+  # prompt. Probes are throttled so a genuinely dead token cannot hammer SSO.
+  defp flag_character_for_reauth(character, character_id) do
+    # Skip if the character was recently re-authorized via SSO - fresh tokens must not be
+    # condemned by in-flight or immediately-subsequent invalid_grant errors.
+    if Cache.lookup!("character:#{character_id}:reauth_grace", false) do
       Logger.info(
-        "[ApiClient] Skipping token invalidation for #{character_id} - within re-auth grace period"
+        "[ApiClient] Skipping re-auth flag for #{character_id} - within re-auth grace period",
+        character_id: character_id,
+        error_type: "reauth_grace"
       )
     else
       # Re-load from DB to avoid race with concurrent re-auth
       case WandererApp.Api.Character.by_id(character_id) do
         {:ok, current_character} ->
-          # Only invalidate if tokens haven't been refreshed since we started
+          # Only flag if tokens haven't been refreshed since we started
           if current_character.access_token == character.access_token do
-            attrs = %{
-              access_token: nil,
-              refresh_token: nil,
-              expires_at: expires_at,
-              scopes: scopes
-            }
+            Cache.put(reauth_probe_key(character_id), true, ttl: @reauth_probe_ttl)
 
-            with {:ok, _} <- WandererApp.Api.Character.update(current_character, attrs) do
-              WandererApp.Character.update_character(character_id, attrs)
-            else
-              error ->
-                Logger.error("Failed to clear tokens for #{character_id}: #{inspect(error)}")
-            end
+            WandererApp.Character.set_needs_reauth(character_id, true)
 
             Phoenix.PubSub.broadcast(
               WandererApp.PubSub,
               "character:#{character_id}",
               :character_token_invalid
             )
+
+            Logger.warning("TOKEN_INVALIDATED: character flagged for re-authorization",
+              character_id: character_id,
+              error_type: "invalid_grant"
+            )
           else
             Logger.info(
-              "[ApiClient] Skipping token invalidation for #{character_id} - tokens were refreshed concurrently"
+              "[ApiClient] Skipping re-auth flag for #{character_id} - tokens were refreshed concurrently",
+              character_id: character_id,
+              error_type: "concurrent_refresh"
             )
           end
 
         {:error, _} ->
-          Logger.error("Failed to load character #{character_id} for token invalidation")
+          Logger.error("Failed to load character #{character_id} for re-auth flag",
+            character_id: character_id,
+            error_type: "character_load_failed"
+          )
       end
     end
 

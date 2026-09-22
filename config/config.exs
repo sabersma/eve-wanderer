@@ -102,6 +102,7 @@ config :logger, :console,
     :error,
     :error_message,
     :error_type,
+    :http_status,
     :time_since_expiry_seconds,
     :original_expires_at,
     :new_expires_at,
@@ -109,7 +110,14 @@ config :logger, :console,
     :method,
     :pool,
     :endpoint,
-    :exception
+    :exception,
+    # SSO refresh resilience (ApiClient, Character)
+    :window_failures,
+    :degraded_for_seconds,
+    :strike_count,
+    :strike_span_minutes,
+    :backoff_seconds,
+    :needs_reauth
   ]
 
 # Use Jason for JSON parsing in Phoenix

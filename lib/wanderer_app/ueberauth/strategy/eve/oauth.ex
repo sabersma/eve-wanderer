@@ -18,6 +18,19 @@ defmodule WandererApp.Ueberauth.Strategy.Eve.OAuth do
     token_url: "https://login.eveonline.com/v2/oauth/token"
   ]
 
+  @body_preview_limit 500
+
+  @doc false
+  # Normalizes an HTTP-level failure into `{:error, {:http_error, status, body_preview}}`.
+  #
+  # Used when the response body carries no OAuth `error` document. EVE SSO sits behind
+  # Cloudflare, which answers with diagnostics such as the plain-text `error code: 526`
+  # (invalid origin TLS certificate) when CCP's origin is unhealthy. The status code is
+  # what makes those diagnosable, so it is preserved rather than folded into the body.
+  def error_response(%OAuth2.Response{status_code: status, body: body}) do
+    {:error, {:http_error, status, body_preview(body)}}
+  end
+
   @doc """
   Construct a client for requests to Eve.
 
@@ -78,8 +91,14 @@ defmodule WandererApp.Ueberauth.Strategy.Eve.OAuth do
         description = Map.get(response.body, "error_description", "")
         {:error, {error, description}}
 
+      {:error, %OAuth2.Response{} = response} ->
+        error_response(response)
+
       {:error, %OAuth2.Error{reason: reason}} ->
-        {:error, {"error", to_string(reason)}}
+        {:error, {"error", describe(reason)}}
+
+      {:error, error} ->
+        {:error, {"error", describe(error)}}
     end
   end
 
@@ -101,8 +120,8 @@ defmodule WandererApp.Ueberauth.Strategy.Eve.OAuth do
         description = Map.get(response.body, "error_description", "")
         {:error, {error, description}}
 
-      {:error, %OAuth2.Response{body: body}} ->
-        {:error, to_string(body)}
+      {:error, %OAuth2.Response{} = response} ->
+        error_response(response)
 
       {:error, error} ->
         {:error, error}
@@ -123,6 +142,22 @@ defmodule WandererApp.Ueberauth.Strategy.Eve.OAuth do
     |> basic_auth()
     |> put_headers(headers)
   end
+
+  # Non-binary bodies must not raise here: a JSON object without an `error` key, an
+  # array, or `nil` all reach this point, and `to_string/1` only accepts strings,
+  # atoms and chardata. `inspect/1` is total and renders every term.
+  defp body_preview(body) when is_binary(body), do: truncate(String.trim(body))
+  defp body_preview(body), do: body |> inspect(limit: 20, pretty: false) |> truncate()
+
+  defp truncate(text) when byte_size(text) <= @body_preview_limit, do: text
+
+  defp truncate(text) do
+    String.slice(text, 0, @body_preview_limit) <> "...(truncated)"
+  end
+
+  defp describe(value) when is_binary(value), do: value
+  defp describe(value) when is_atom(value), do: Atom.to_string(value)
+  defp describe(value), do: inspect(value, limit: 20, pretty: false)
 
   defp resolve_values(list) do
     for {key, value} <- list do

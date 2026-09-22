@@ -108,6 +108,48 @@ defmodule WandererApp.Character do
     end)
   end
 
+  @doc """
+  Flags or clears the `needs_reauth` marker for a character.
+
+  Persisted to the DB, mirrored in the character cache, and broadcast so open map
+  LiveViews refresh their expired-characters badge. The write is skipped when the value
+  is unchanged, so repeated ESI failures do not produce a stream of DB updates.
+
+  Shared by the tracker (persistent ESI errors) and the ESI client (dead credentials),
+  so a character is flagged and - more importantly - *unflagged* by one code path.
+  """
+  def set_needs_reauth(character_id, value) when is_boolean(value) do
+    case WandererApp.Api.Character.by_id(character_id) do
+      {:ok, %{eve_id: eve_id} = character} ->
+        if character.needs_reauth != value do
+          with {:ok, _} <-
+                 WandererApp.Api.Character.update_needs_reauth(character, %{
+                   needs_reauth: value
+                 }) do
+            update_character(character_id, %{needs_reauth: value})
+
+            Logger.info("[Character] needs_reauth changed",
+              character_id: character_id,
+              needs_reauth: value
+            )
+
+            # Notify open map LiveViews (subscribed to "character:#{eve_id}") so the
+            # expired-characters badge refreshes without a full map reload.
+            Phoenix.PubSub.broadcast(
+              WandererApp.PubSub,
+              "character:#{eve_id}",
+              :character_needs_reauth
+            )
+          end
+        end
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
   def get_character_state(character_id, init_if_empty? \\ true) do
     case Cachex.get(:character_state_cache, character_id) do
       {:ok, nil} ->

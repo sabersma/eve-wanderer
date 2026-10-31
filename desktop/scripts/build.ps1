@@ -5,7 +5,8 @@
 
 .DESCRIPTION
     执行 npm install + tauri build，然后把 NSIS/MSI 安装包复制到 dist\v<版本>\，
-    并生成 SHA256SUMS.txt。
+    生成 SHA256SUMS.txt，并把安装包和校验文件打包为
+    dist\Wanderer_<版本>_x64.zip（默认）。
 
     发布构建不应设置 WANDERER_SERVER_URL：它只用于开发时跳过首次设置页。
 
@@ -19,7 +20,10 @@
     分发包输出目录，默认为 desktop\dist。
 
 .PARAMETER NoDist
-    只构建，不复制安装包、不生成 SHA256。
+    只构建，不复制安装包、不生成 SHA256、不打包 zip。
+
+.PARAMETER NoZip
+    照常复制安装包和生成 SHA256，但不生成 zip 压缩包。
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
@@ -35,7 +39,8 @@ param(
     [switch]$SkipInstall,
     [switch]$Clean,
     [string]$OutputDir = '',
-    [switch]$NoDist
+    [switch]$NoDist,
+    [switch]$NoZip
 )
 
 Set-StrictMode -Version Latest
@@ -105,6 +110,35 @@ function Get-Installer {
     return Get-ChildItem -LiteralPath $Directory -Filter $Filter -File -ErrorAction SilentlyContinue |
         Sort-Object -Property LastWriteTime -Descending |
         Select-Object -First 1
+}
+
+function New-ReleaseZip {
+    param(
+        [Parameter(Mandatory = $true)][string]$VersionDir,
+        [Parameter(Mandatory = $true)][string]$OutputDir,
+        [Parameter(Mandatory = $true)][string]$Version,
+        [Parameter(Mandatory = $true)][string[]]$FileNames
+    )
+
+    $zipPath = Join-Path $OutputDir "Wanderer_${Version}_x64.zip"
+    if (Test-Path -LiteralPath $zipPath) {
+        Remove-Item -LiteralPath $zipPath -Force
+    }
+
+    $files = @()
+    foreach ($name in $FileNames) {
+        $path = Join-Path $VersionDir $name
+        if (Test-Path -LiteralPath $path) {
+            $files += $path
+        }
+    }
+
+    if ($files.Count -eq 0) {
+        Fail '没有找到可打包的分发文件。'
+    }
+
+    Compress-Archive -LiteralPath $files -DestinationPath $zipPath -CompressionLevel Optimal
+    return $zipPath
 }
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
@@ -257,6 +291,8 @@ if ($null -ne $msiInstaller) {
 
 $hashFile = $null
 $versionDir = $null
+$zipPath = $null
+$zipHashFile = $null
 
 if (-not $NoDist) {
     if ([string]::IsNullOrWhiteSpace($OutputDir)) {
@@ -287,6 +323,25 @@ if (-not $NoDist) {
 
     $hashFile = Join-Path $versionDir 'SHA256SUMS.txt'
     Set-Content -LiteralPath $hashFile -Value $hashLines.ToArray() -Encoding ASCII
+
+    if (-not $NoZip) {
+        Write-Step '生成 zip 分发包'
+
+        $zipFileNames = @($installers | ForEach-Object { $_.Name }) + @('SHA256SUMS.txt')
+        try {
+            $zipPath = New-ReleaseZip -VersionDir $versionDir -OutputDir $OutputDir -Version $version -FileNames $zipFileNames
+        }
+        catch {
+            Fail "生成 zip 失败：$($_.Exception.Message)"
+        }
+
+        $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $zipHashFile = "${zipPath}.sha256"
+        Set-Content -LiteralPath $zipHashFile -Value "$zipHash  $(Split-Path -Leaf $zipPath)" -Encoding ASCII
+
+        $zipSizeMb = [Math]::Round((Get-Item -LiteralPath $zipPath).Length / 1MB, 1)
+        Write-Note ("{0}  {1} MB" -f (Split-Path -Leaf $zipPath), $zipSizeMb)
+    }
 }
 
 $minutes = [int][Math]::Floor($elapsed.TotalMinutes)
@@ -302,8 +357,14 @@ if ($null -ne $versionDir) {
     Write-Note "SHA256：$hashFile"
 }
 
+if ($null -ne $zipPath) {
+    Write-Note "压缩包：$zipPath"
+    Write-Note "压缩包 SHA256：$zipHashFile"
+}
+
 Write-Host ''
 Write-Host '发布前提醒：' -ForegroundColor Yellow
 Write-Host '  - 安装包未签名时会触发 SmartScreen；对外分发前请配置代码签名。'
 Write-Host '  - 分发前确认服务端已部署 /desktop 路由和最新前端资源。'
 Write-Host '  - 同一个安装包发给所有成员，不要在安装包里写死服务器地址。'
+Write-Host '  - 对外分发推荐直接发 zip（内含安装包和 SHA256SUMS.txt）。'

@@ -75,7 +75,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 1. 检查 Windows / Node.js / Rust 工具链，确认没有设置 `WANDERER_SERVER_URL`；
 2. 执行 `npm install` + `npm run build`；
 3. 把 NSIS 和 MSI 安装包复制到 `desktop\dist\v<版本>\`；
-4. 生成 `SHA256SUMS.txt` 并打印产物路径和大小。
+4. 生成 `SHA256SUMS.txt`，并默认打包成 `desktop\dist\Wanderer_<版本>_x64.zip`
+   （同时生成压缩包的 `.sha256` 校验文件）。
 
 常用参数：
 
@@ -83,7 +84,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 | --- | --- |
 | `-SkipInstall` | 跳过 `npm install`（依赖已安装时加快构建） |
 | `-Clean` | 构建前执行 `cargo clean`（明显变慢） |
-| `-NoDist` | 只构建，不复制安装包、不生成 SHA256 |
+| `-NoDist` | 只构建，不复制安装包、不生成 SHA256/zip |
+| `-NoZip` | 照常复制安装包和生成 SHA256，但不生成 zip |
 | `-OutputDir D:\release` | 自定义分发包输出目录 |
 
 如果不用脚本，手动执行等价命令：
@@ -108,6 +110,21 @@ desktop/src-tauri/target/release/bundle/
 └─ msi/Wanderer_0.1.0_x64_en-US.msi    # 需要 MSI 部署时使用
 ```
 
+运行 `build.ps1` 后还会得到整理好的分发包：
+
+```text
+desktop/dist/
+├─ v0.1.0/
+│  ├─ Wanderer_0.1.0_x64-setup.exe
+│  ├─ Wanderer_0.1.0_x64_en-US.msi
+│  └─ SHA256SUMS.txt
+├─ Wanderer_0.1.0_x64.zip             # 默认生成，推荐直接分发
+└─ Wanderer_0.1.0_x64.zip.sha256      # 压缩包自身的 SHA256
+```
+
+zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不需要时加 `-NoZip`。
+`-NoDist` 会同时跳过复制、校验和 zip。
+
 - **只发安装包**。`target/release/wanderer-desktop.exe` 依赖 WebView2 运行时和同目录资源，
   单独拷给成员不可靠；Tauri 也不提供单文件绿色版。
 - 同一个安装包发给所有人。服务器地址不写进安装包，由成员首次启动时填写，
@@ -115,14 +132,15 @@ desktop/src-tauri/target/release/bundle/
 - WebView2 使用 `downloadBootstrapper`：Win11 自带；Win10 缺失时安装程序联网安装。
   需要完全离线安装时，把 `tauri.conf.json` 的 `webviewInstallMode` 改为
   `embedBootstrapper` 或 `offlineInstaller`，安装包会明显变大。
-- 运行打包脚本时，可直接分发 `desktop\dist\v<版本>\` 整个目录：里面已包含安装包和
-  `SHA256SUMS.txt`，便于成员确认文件完整。
+- 运行打包脚本时，推荐直接分发 `desktop\dist\Wanderer_<版本>_x64.zip`：里面已包含
+  安装包和 `SHA256SUMS.txt`；也可以发 `desktop\dist\v<版本>\` 整个目录。
 - 手动构建时，建议自行计算并附上 SHA256。
 
 ### 5. 版本号与代码签名
 
-- 修改版本号：`desktop/src-tauri/tauri.conf.json`（安装包版本以此为准），
-  同时同步 `desktop/package.json`，避免版本展示不一致。
+- 修改版本号：`desktop/src-tauri/tauri.conf.json`（安装包文件名和版本信息以此为准），
+  同时同步 `desktop/package.json` 和 `desktop/src-tauri/Cargo.toml`，避免各处版本展示不一致。
+  打包脚本会检查 `package.json` 与 `tauri.conf.json` 是否一致。
 - 安装包文件名会自动带上版本号。
 - 未签名安装包会触发 Windows SmartScreen（“Windows 已保护你的电脑”），
   成员需要点「更多信息 → 仍要运行」。内部分发要提前说明；对外分发建议配置

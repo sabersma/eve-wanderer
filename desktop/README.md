@@ -218,7 +218,8 @@ WebView2 逐像素透明必须关掉重定向位图，这会丢失系统标题�
 同一个安装包可以发给所有成员。每个成员第一次启动时填写服务器地址，保存在自己的 `%APPDATA%` 下，互不影响。
 
 Windows 上推荐直接运行打包脚本，它会检查环境、执行 `npm install` + `npm run build`，
-并把安装包复制到 `desktop\dist\v<版本>\`、生成 `SHA256SUMS.txt`：
+把安装包复制到 `desktop\dist\v<版本>\`、生成 `SHA256SUMS.txt`，并默认把安装包和
+校验文件打包成 `desktop\dist\Wanderer_<版本>_x64.zip`：
 
 ```powershell
 cd desktop
@@ -234,18 +235,34 @@ npm run build
 ```
 
 脚本参数：`-SkipInstall`（跳过依赖安装）、`-Clean`（先 `cargo clean`）、
-`-NoDist`（只构建不复制）、`-OutputDir D:\release`（自定义分发包目录）。
+`-NoDist`（只构建不复制）、`-NoZip`（不生成 zip）、`-OutputDir D:\release`（自定义分发包目录）。
 
 不要为发布构建设置 `WANDERER_SERVER_URL`；该变量只在运行时生效，用于开发时跳过设置页，
 不会写进安装包。打包脚本检测到非空值会拒绝构建。
 
 ### 3. 产物
 
+Tauri 原始产物：
+
 ```text
 desktop/src-tauri/target/release/bundle/
 ├─ nsis/Wanderer_0.1.0_x64-setup.exe   # 推荐发给成员
 └─ msi/Wanderer_0.1.0_x64_en-US.msi    # 需要 MSI 分发时使用
 ```
+
+`build.ps1` 整理后的分发包：
+
+```text
+desktop/dist/
+├─ v0.1.0/
+│  ├─ Wanderer_0.1.0_x64-setup.exe
+│  ├─ Wanderer_0.1.0_x64_en-US.msi
+│  └─ SHA256SUMS.txt
+├─ Wanderer_0.1.0_x64.zip             # 默认生成，推荐直接分发这个
+└─ Wanderer_0.1.0_x64.zip.sha256      # 压缩包自身的 SHA256
+```
+
+zip 内包含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`。不需要 zip 时加 `-NoZip`。
 
 Tauri 不提供“单文件绿色版”。`target/release/wanderer-desktop.exe` 依赖 WebView2 运行时和同目录资源，直接拷贝这个 exe 不可靠；请分发安装包。
 
@@ -263,7 +280,8 @@ WebView2 使用 `downloadBootstrapper`：Win11 自带，Win10 若缺失会由安
 
 ### 5. 版本与发布
 
-- 同时修改 `desktop/package.json` 和 `desktop/src-tauri/tauri.conf.json` 的 `version`；
+- 同时修改 `desktop/src-tauri/tauri.conf.json`（安装包文件名以它为准）、
+  `desktop/package.json` 和 `desktop/src-tauri/Cargo.toml` 的 `version`；
 - 安装包文件名会带上版本号；
 - 自动更新（`tauri-plugin-updater`）、托盘、单实例、窗口位置持久化尚未接入，属于 P1。
 

@@ -65,7 +65,8 @@
 ```text
 eve-wanderer/
 ├─ docs/
-│  └─ desktop-client.md              # 本文档
+│  ├─ desktop-client.md              # 本文档
+│  └─ desktop-release-and-usage.md   # 打包与成员使用手册
 ├─ lib/
 │  └─ wanderer_app_web/
 │     ├─ live/
@@ -521,6 +522,9 @@ npm run dev
 ```
 
 ## 14. 打包分发
+
+逐步操作手册（含成员安装/使用、发版检查清单、故障排查）见
+[`desktop-release-and-usage.md`](desktop-release-and-usage.md)。以下为设计层面的要点。
 
 发布安装包前，必须满足：
 

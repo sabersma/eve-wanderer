@@ -2,7 +2,8 @@
 
 Windows 10/11 桌面客户端（Tauri 2 + 系统 WebView2）。它不复制地图逻辑：每个窗口加载现有 Phoenix LiveView 页面（`/desktop`、`/desktop/:slug`、`/desktop/:slug/widget/:widget`），因此地图数据、SSO 用户、订阅规则、读写权限与 Web 端完全一致。
 
-设计说明见 [`../docs/desktop-client.md`](../docs/desktop-client.md)。
+设计说明见 [`../docs/desktop-client.md`](../docs/desktop-client.md)；
+打包与成员使用流程见 [`../docs/desktop-release-and-usage.md`](../docs/desktop-release-and-usage.md)。
 
 ## 目录
 
@@ -10,6 +11,7 @@ Windows 10/11 桌面客户端（Tauri 2 + 系统 WebView2）。它不复制地�
 desktop/
 ├── package.json              # Tauri CLI 入口
 ├── web/index.html            # 首次启动的服务器地址设置页
+├── scripts/                  # build.ps1（Windows 打包）与 sync-to-windows.sh（WSL 同步）
 └── src-tauri/
     ├── Cargo.toml
     ├── build.rs
@@ -198,6 +200,9 @@ WebView2 逐像素透明必须关掉重定向位图，这会丢失系统标题�
 
 ## 打包与分发
 
+逐步操作手册（含成员安装/使用、故障排查）见
+[`../docs/desktop-release-and-usage.md`](../docs/desktop-release-and-usage.md)。
+
 ### 1. 先部署服务端
 
 客户端本身不含地图页面，所有窗口都加载 Wanderer 服务端。因此分发安装包之前，必须先把包含以下内容的版本部署到正式服务器：
@@ -212,14 +217,27 @@ WebView2 逐像素透明必须关掉重定向位图，这会丢失系统标题�
 
 同一个安装包可以发给所有成员。每个成员第一次启动时填写服务器地址，保存在自己的 `%APPDATA%` 下，互不影响。
 
+Windows 上推荐直接运行打包脚本，它会检查环境、执行 `npm install` + `npm run build`，
+并把安装包复制到 `desktop\dist\v<版本>\`、生成 `SHA256SUMS.txt`：
+
+```powershell
+cd desktop
+powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
+```
+
+等价的手动命令：
+
 ```powershell
 cd desktop
 npm install
 npm run build
 ```
 
-不要为发布构建设置 `WANDERER_SERVER_URL`；该变量只用于开发时跳过设置页。
-把地址写死进安装包会导致成员无法修改，服务器迁移时只能重新发版。
+脚本参数：`-SkipInstall`（跳过依赖安装）、`-Clean`（先 `cargo clean`）、
+`-NoDist`（只构建不复制）、`-OutputDir D:\release`（自定义分发包目录）。
+
+不要为发布构建设置 `WANDERER_SERVER_URL`；该变量只在运行时生效，用于开发时跳过设置页，
+不会写进安装包。打包脚本检测到非空值会拒绝构建。
 
 ### 3. 产物
 

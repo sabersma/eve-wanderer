@@ -55,6 +55,9 @@ desktop/scripts/sync-to-windows.sh --dry-run  # 先看会改哪些文件
 
 SSO 登录沿用页面的会话 Cookie。所有窗口共享同一个 WebView2 用户数据目录，所以主窗口登录后，小窗口不需要再次登录。
 
+桌面窗口未登录时不会经过 Web 的欢迎页：`/desktop` 系列路由的 `ensure_authenticated_desktop` 直接跳到
+`/auth/eve?desktop=1`，服务端用 session 记录来源，回调成功后回到 `/desktop`（Web 登录仍回 `/characters`）。
+
 ## 服务器地址
 
 首次启动时填写的地址会保存到：
@@ -90,9 +93,15 @@ SSO 登录沿用页面的会话 Cookie。所有窗口共享同一个 WebView2 �
 窗口：
 
 - `main`：`/desktop`（地图选择）→ `/desktop/:slug`（订阅模式的精简地图）。
-- `widget-<slug>-signatures`：`/desktop/:slug/widget/signatures`
-- `widget-<slug>-kills`：`/desktop/:slug/widget/kills`
-- `widget-<slug>-characters`：`/desktop/:slug/widget/characters`
+- `widget-<slug>-signatures`：`/desktop/:slug/widget/signatures`（380 × 560）
+- `widget-<slug>-jspace`：`/desktop/:slug/widget/jspace`（360 × 420）
+- `widget-<slug>-bookmarks`：`/desktop/:slug/widget/bookmarks`（440 × 560）
+- `widget-<slug>-kills`：`/desktop/:slug/widget/kills`（720 × 460）
+- `widget-<slug>-characters`：`/desktop/:slug/widget/characters`（340 × 460）
+
+尺寸在 `src-tauri/src/windows.rs` 的 `open_widget` 里维护；新增 widget 时这里和
+`lib/wanderer_app_web/live/map/map_live.ex` 的 `@desktop_widgets` 都要补。
+窗口内切换挂件只替换内容，不重建窗口，用户调整过的大小会保留。
 
 页面通过 `window.__TAURI__.core.invoke` 调用：
 
@@ -185,13 +194,13 @@ WebView2 使用 `downloadBootstrapper`：Win11 自带，Win10 若缺失会由安
 - [ ] 安装包未设置 `WANDERER_SERVER_URL`，首次启动会出现设置页
 - [ ] 在干净的 Windows 10/11 上安装，输入地址并完成 SSO 登录
 - [ ] 断网或输错地址后，可通过原生菜单「服务器设置…」改回
-- [ ] 打开三个独立窗口，确认置顶、跟随、关主窗口后仍存活
+- [ ] 打开五个独立窗口（信号/J空间/位标/KM/成员），确认置顶、跟随、关主窗口后仍存活
 - [ ] 版本号与发布说明已更新
 
 ## 当前边界
 
 - 仅 Windows。其他平台能编译但 EVE 跟随不可用。
 - 置顶同样只在 Windows 生效：WSLg 的 GTK/Wayland 没有 keep-above，开发时点击置顶看起来“没反应”属于环境限制，需在 Windows 实机验证。
-- 主地图窗口不显示 Web 端保存的挂件布局；信号/KM/成员只在独立窗口中出现，路线、建筑、评论等其他挂件暂未提供独立窗口。
+- 主地图窗口不显示 Web 端保存的挂件布局；信号/J空间/位标/KM/成员只在独立窗口中出现，路线、建筑、评论等其他挂件暂未提供独立窗口。
 - SSO 在 WebView2 内嵌登录遇到服务端限制时，需要回退到系统浏览器 + loopback 回调（设计文档中的 P0 风险项，尚未实现）。
 - 订阅模式下新增/删除星系与 Web 完全一致，客户端没有任何绕过。

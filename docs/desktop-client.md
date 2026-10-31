@@ -13,7 +13,7 @@
 - 使用与 Web 相同的 EVE SSO 用户体系。
 - 使用同一套地图数据、权限、订阅与实时事件。
 - 地图渲染复用现有 React Flow 地图，不重写渲染层。
-- 支持将信号、KM、星系成员等小组件拆成独立窗口。
+- 支持将信号、J空间、本地位标、KM、星系成员等小组件拆成独立窗口。
 - 信号窗口支持跟随“最后激活的 EVE 客户端”的角色所在星系。
 - 支持 P1 范围内的地图写操作：星系编辑、连线增删改、信号增删改。
 - 主窗口关闭后，独立小组件窗口继续存在。
@@ -116,16 +116,17 @@ eve-wanderer/
 | `/desktop` | `DesktopLive :index` | 登录后的地图选择 |
 | `/desktop/:slug` | `MapLive :desktop` | 桌面主地图，精简布局 |
 | `/desktop/:slug/widget/signatures` | `MapLive :widget` | 独立信号窗口 |
+| `/desktop/:slug/widget/jspace` | `MapLive :widget` | 独立 J-Space 窗口（活跃公司排行） |
+| `/desktop/:slug/widget/bookmarks` | `MapLive :widget` | 独立本地位标窗口（信号/位标对比） |
 | `/desktop/:slug/widget/kills` | `MapLive :widget` | 独立 KM 窗口 |
 | `/desktop/:slug/widget/characters` | `MapLive :widget` | 独立星系成员窗口 |
-| `/desktop/:slug/widget/jspace` | `MapLive :widget` | 独立 J-Space 窗口（活跃公司排行） |
 
 路由必须放在单段 catch-all `live "/:slug"` 之前。
 
 `MapLive` 在桌面 action 中设置：
 
 - `desktop_mode?: true`
-- `desktop_widget: nil | "signatures" | "kills" | "characters" | "jspace"`
+- `desktop_widget: nil | "signatures" | "jspace" | "bookmarks" | "kills" | "characters"`（白名单为 `MapLive` 的 `@desktop_widgets`）
 - 桌面感知的跳转：`change_map` → `/desktop/:slug`；`no_access` / `map_deleted` → `/desktop`。
 
 `#mapper` DOM 增加：
@@ -154,7 +155,7 @@ eve-wanderer/
 - 显示规则沿用 Web 的订阅视图：
   - 从订阅星系、本人角色所在星系出发，沿连线可达的星系显示。
   - 隐藏模式开启时，只显示订阅星系可达的簇。
-  - widget 窗口直接按“跟随星系 → 星系 ID”读取信号/KM/成员，不要求该星系已订阅（不读地图可见集，也不改变新增/删除的权限判断）。
+  - widget 窗口直接按“跟随星系 → 星系 ID”读取信号/位标/KM/成员，不要求该星系已订阅（不读地图可见集，也不改变新增/删除的权限判断）。
   - `MapRootProvider` 额外把“跟随星系”作为显示种子；P0 的 widget 窗口不渲染地图，因此这一项是为后续小地图/主图联动预留的显示行为，同样不改变写入权限。
 - 订阅为空时显示非阻塞提示，引导用户先订阅星系列表。
 
@@ -253,6 +254,36 @@ window.__wandererDesktop.onDesktopState({
 - 其他外部导航（非服务端、非 EVE SSO）直接阻止，页面本身不会离开 Wanderer。
 - `window.open` / `target="_blank"`（zkillboard、dotlan、anoik、J-Space Helper 等）不再走导航白名单，而是交给 `on_new_window`：仅 `http`/`https` 用系统默认浏览器打开，其余 scheme 丢弃。没有这个处理器时 wry 会拒绝所有新窗口请求，页面里的外链按钮会“点了没反应”。
 
+### 7.3 桌面登录（SSO）
+
+桌面窗口没有 Web 端欢迎页，未登录时直接进入 EVE SSO，登录完成后回到 `/desktop`：
+
+1. `/desktop` 系列路由挂在 `live_session :desktop`，`on_mount: {UserAuth, :ensure_authenticated_desktop}`。
+   没有 `user_id` 时重定向到 `/auth/eve?desktop=1`（而不是 Web 端的 `/auth/eve`）。
+2. `AuthController` 的 `store_desktop_origin` plug 把 `desktop` 标记写进 session —— Ueberauth 跳转 EVE 时
+   会丢掉 query string，只有 session 能把来源带到回调。
+3. 回调成功后：session 里有 `desktop` 标记就删除标记并重定向 `/desktop`；否则保持原来的 `/characters`。
+   标记用完即清，同一浏览器会话之后的 Web 登录不受影响。
+4. 所有窗口共享同一个 WebView2 用户数据目录，因此主窗口登录后，独立小窗口直接复用 Cookie，不需要再次登录。
+
+已知边界：WebView2 内嵌 SSO 若被服务端策略或第三方 Cookie 限制拦截，回退方案（系统浏览器 + loopback 回调）
+仍未实现，见 P2。
+
+### 7.4 独立窗口尺寸
+
+`windows.rs` 的 `open_widget` 决定每个小窗口的初始尺寸（逻辑像素，最小 260×220）：
+
+| widget | 初始尺寸 |
+| --- | --- |
+| `signatures` | 380 × 560 |
+| `jspace` | 360 × 420 |
+| `bookmarks` | 440 × 560 |
+| `kills` | 720 × 460 |
+| `characters` | 340 × 460 |
+
+窗口内的挂件切换只替换内容，不重建窗口，所以用户调整过的大小会保留。新增 widget 时要在
+`windows.rs` 的这张表里补一行，否则 `open_widget` 会返回 `unsupported widget`。
+
 ## 8. 前端实现要点
 
 ### 8.1 桌面状态
@@ -276,7 +307,7 @@ window.__wandererDesktop.onDesktopState({
 - 桌面端传入跟随星系，作为额外 BFS 种子。
 - 订阅为空时，如果存在额外种子，仍然渲染跟随星系及其可达簇。
 - 不修改 `hideUnsubscribed` 的写入权限语义。
-- P0 的 widget 窗口不渲染地图，所以种子目前只影响 `MapRootProvider` 的可见集；widget 数据（信号/KM/成员）直接使用跟随星系 ID，不依赖该可见集。
+- P0 的 widget 窗口不渲染地图，所以种子目前只影响 `MapRootProvider` 的可见集；widget 数据（信号/位标/KM/成员）直接使用跟随星系 ID，不依赖该可见集。
 
 ### 8.3 活动星系
 
@@ -289,14 +320,15 @@ window.__wandererDesktop.onDesktopState({
 
 ### 8.4 Widget 窗口
 
-- 主地图窗口不渲染 Web 端保存的挂件布局（`windowsSettings`）：信号/KM/成员只出现在独立 widget 窗口里，由主窗口的 `DesktopMainBar` 打开；Web 端的挂件设置不受影响。
+- 主地图窗口不渲染 Web 端保存的挂件布局（`windowsSettings`）：信号/J空间/位标/KM/成员只出现在独立 widget 窗口里，由主窗口的 `DesktopMainBar` 打开；Web 端的挂件设置不受影响。
 - `MapRootContent` 在 widget 模式下只渲染目标 widget，不渲染地图；`map_event` 由 `MapRoot` 的命令处理器维护状态，独立窗口无需隐藏的 React Flow 图。
-- `SystemSignatures` / `WSystemKills` / `LocalCharacters` 使用活动星系，而不是仅依赖 `selectedSystems`。
+- `SystemSignatures` / `JspaceWidget` / `LocalBookmarks` / `WSystemKills` / `LocalCharacters` 使用活动星系，而不是仅依赖 `selectedSystems`。
+- 本地位标窗口的粘贴内容按星系保存在 `localStorage`，没有服务端读写；多个窗口之间通过 `storage` 事件同步，与 Web 端互不影响。匹配规则见 [`feature-local-bookmarks.md`](feature-local-bookmarks.md)。
 - 跟随解析不到星系时（EVE 未激活、角色不在该地图、位置未同步），widget 回退到主图最后选中的星系（主窗口写入 `localStorage`，widget 通过 `storage` 事件联动）。两者都没有时，信号窗口会说明原因并禁用 `+`，避免点击后静默无响应。
 - 信号添加/编辑对话框宽度按窗口自适应（`min(390px, calc(100vw - 24px))`），适配 380px 宽的独立信号窗口。
 - 信号窗口保留现有粘贴、编辑、删除、撤销、链接逻辑。
 - `DesktopWidgetBar` 显示跟随状态、跟随开关、置顶、打开主地图、切换挂件等操作。
-- 窗口内的挂件切换**不新开窗口**：点击信号/KM/成员/J空间只是替换当前窗口的内容（React 本地状态），
+- 窗口内的挂件切换**不新开窗口**：点击信号/J空间/位标/KM/成员只是替换当前窗口的内容（React 本地状态），
   窗口本身、置顶状态和 LiveView socket 都保留，因此只需要置顶一个小窗口就能在各挂件间来回看。
   想要并排多个窗口时，仍可从主地图的 `DesktopMainBar` 打开独立窗口。
 - 窗口标题随当前挂件更新；窗口尺寸保持用户最后调整的大小，不随切换自动缩放。
@@ -328,7 +360,7 @@ window.__wandererDesktop.onDesktopState({
 
 ### P1
 
-1. 三个独立 widget 窗口完整交互。
+1. 五个独立 widget 窗口完整交互。
 2. 信号跟随开关、手动角色/星系选择。
 3. 星系编辑、连线增删改、信号增删改的桌面验证。
 4. 托盘、窗口持久化、置顶、开机启动（可选）。
@@ -346,7 +378,7 @@ window.__wandererDesktop.onDesktopState({
 | 风险 | 验证方式 | 处理 |
 |---|---|---|
 | WebView2 内 EVE SSO 被拦截 | P0 实测完整 redirect | 回退系统浏览器 + loopback + 一次性会话 URL（需服务端小回调） |
-| 多窗口 Presence / 追踪副作用 | 1 主窗口 + 3 widget，关闭主窗口观察 | 依赖 15 分钟宽限期；必要时 widget 窗口只读追踪 |
+| 多窗口 Presence / 追踪副作用 | 1 主窗口 + 5 widget，关闭主窗口观察 | 依赖 15 分钟宽限期；必要时 widget 窗口只读追踪 |
 | 大图下多窗口内存/首屏 | 大图 4 窗口压测 | P2 精简 widget payload |
 | EVE 标题无角色名 | 多客户端/本地化测试 | 手动选择；仍不读日志文件 |
 | 独占全屏无法覆盖 | 全屏/无边框对比 | 文档建议无边框窗口 |
@@ -359,7 +391,7 @@ window.__wandererDesktop.onDesktopState({
 - 无订阅时有提示；跟随星系仍可显示。
 - 桌面端星系编辑、连线增删改、信号增删改与 Web 实时同步。
 - 星系新增/删除的可用性与 Web 完全一致，没有桌面专属放宽。
-- 信号、KM、成员三个窗口可独立打开、移动、置顶；关闭主窗口后继续工作。
+- 信号、J空间、位标、KM、成员五个窗口可独立打开、移动、置顶；关闭主窗口后继续工作。
 - 在两个 EVE 客户端之间切换，信号窗口在约 3–5 秒内切到对应角色所在星系。
 - 不读取 EVE 日志、文件或内存。
 - ACL、审计等复杂操作不出现在桌面精简布局中。

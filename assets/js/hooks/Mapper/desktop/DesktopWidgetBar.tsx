@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { getSystemStaticInfo, useLoadSystemStatic } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic';
 import {
   MAX_WIDGET_OPACITY,
@@ -12,6 +13,7 @@ import {
 } from './bridge';
 import { useDesktopBridgeState } from './useDesktopBridge';
 import { useDesktopActiveSystem } from './useDesktopActiveSystem';
+import { getEffectLabel, getSpecialSystemLabel, getSystemClassLabel } from './systemTitle';
 import { DesktopWidget } from './types';
 
 type DesktopWidgetBarProps = {
@@ -36,6 +38,9 @@ const ALWAYS_ON_TOP_UNSUPPORTED =
 export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
   const { followEnabled, widgetOpacity, alwaysOnTop } = useDesktopBridgeState();
   const { lastEve, matchedCharacter, systemId } = useDesktopActiveSystem();
+  const {
+    data: { wormholesData },
+  } = useMapRootState();
   const [topNotice, setTopNotice] = useState<string | null>(null);
 
   // A detached window has no map, so nothing else preloads static system data.
@@ -44,7 +49,11 @@ export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
   const systemsToLoad = useMemo(() => (systemId ? [systemId] : []), [systemId]);
   useLoadSystemStatic({ systems: systemsToLoad });
 
-  const systemName = systemId ? (getSystemStaticInfo(Number(systemId))?.solar_system_name ?? null) : null;
+  const systemStaticInfo = systemId ? getSystemStaticInfo(Number(systemId)) : undefined;
+  const systemName = systemStaticInfo?.solar_system_name ?? null;
+  const systemClassLabel = getSystemClassLabel(systemStaticInfo, wormholesData);
+  const effectLabel = getEffectLabel(systemStaticInfo?.effect_name);
+  const specialSystemLabel = getSpecialSystemLabel(systemStaticInfo);
 
   useEffect(() => {
     if (!alwaysOnTop || !ALWAYS_ON_TOP_UNSUPPORTED) {
@@ -58,10 +67,17 @@ export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
   }, [alwaysOnTop]);
 
   useEffect(() => {
-    const character = matchedCharacter?.name ? ` · ${matchedCharacter.name}` : '';
-    const target = systemName ? ` · ${systemName}` : '';
-    void setWindowTitle(`${WIDGET_LABELS[widget]}${character}${target} · Wanderer`);
-  }, [matchedCharacter?.name, systemName, widget]);
+    const columns = [
+      WIDGET_LABELS[widget],
+      matchedCharacter?.name,
+      systemName,
+      systemClassLabel,
+      effectLabel,
+      specialSystemLabel,
+    ].filter((column): column is string => !!column);
+
+    void setWindowTitle(`${columns.join(' · ')} · Wanderer`);
+  }, [effectLabel, matchedCharacter?.name, specialSystemLabel, systemClassLabel, systemName, widget]);
 
   // The pin is cached per widget id in config.json, and the window is created
   // with it already applied; `desktop_ready` reports the native state so this

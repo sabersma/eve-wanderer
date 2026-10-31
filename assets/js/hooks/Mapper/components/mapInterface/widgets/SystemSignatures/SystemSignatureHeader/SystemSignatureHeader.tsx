@@ -62,7 +62,7 @@ export const SystemSignaturesHeader = ({
             <WdImgButton className={PrimeIcons.PLUS} disabled={addDisabled} onClick={onAddSignature} />
           </WdTooltipWrapper>
 
-          <WdTooltipWrapper content="Enable Lazy delete">
+          <WdTooltipWrapper content="Lazy delete：粘贴信号后，自动删除本次粘贴中没有、但之前存在的信号（删除前可撤销）">
             <WdCheckbox
               size="xs"
               labelSide="left"
@@ -90,21 +90,37 @@ export const SystemSignaturesHeader = ({
               position: TooltipPosition.left,
               content: (
                 <div className="flex flex-col gap-1">
-                  <InfoDrawer title={<b className="text-slate-50">How to add/update signature?</b>}>
-                    In game you need to select one or more signatures <br /> in the list in{' '}
-                    <b className="text-sky-500">Probe scanner</b>. <br /> Use next hotkeys:
+                  <InfoDrawer title={<b className="text-slate-50">如何添加/更新信号？</b>}>
+                    在游戏内打开 <b className="text-sky-500">扫描器（Probe scanner）</b>，
                     <br />
-                    <b className="text-sky-500">Shift + LMB</b> or <b className="text-sky-500">Ctrl + LMB</b>
-                    <br /> or <b className="text-sky-500">Ctrl + A</b> for select all
-                    <br /> and then use <b className="text-sky-500">Ctrl + C</b>, after you need to go <br />
-                    here, select Solar system and paste it with <b className="text-sky-500">Ctrl + V</b>
+                    用 <b className="text-sky-500">Shift + 左键</b> 或 <b className="text-sky-500">Ctrl + 左键</b>
+                    <br />
+                    选中一个或多个信号，<b className="text-sky-500">Ctrl + A</b> 可全选，
+                    <br />
+                    然后按 <b className="text-sky-500">Ctrl + C</b> 复制。
+                    <br />
+                    回到这里，先选好星系，再按 <b className="text-sky-500">Ctrl + V</b> 粘贴。
                   </InfoDrawer>
-                  <InfoDrawer title={<b className="text-slate-50">How to select?</b>}>
-                    For selecting any signature, click on it <br /> with hotkeys{' '}
-                    <b className="text-sky-500">Shift + LMB</b> or <b className="text-sky-500">Ctrl + LMB</b>
+                  <InfoDrawer title={<b className="text-slate-50">如何选择信号？</b>}>
+                    点击信号即可选中，
+                    <br />
+                    <b className="text-sky-500">Shift + 左键</b> 或 <b className="text-sky-500">Ctrl + 左键</b> 可多选。
                   </InfoDrawer>
-                  <InfoDrawer title={<b className="text-slate-50">How to delete?</b>}>
-                    To delete any signature, first select it <br /> and then press <b className="text-sky-500">Del</b>
+                  <InfoDrawer title={<b className="text-slate-50">如何删除信号？</b>}>
+                    选中信号后按 <b className="text-sky-500">Del</b> 删除。
+                  </InfoDrawer>
+                  <InfoDrawer title={<b className="text-slate-50">Lazy delete（粘贴后自动删除）</b>}>
+                    勾选 <b className="text-sky-500">Lazy delete</b> 后粘贴：
+                    <br />
+                    本次粘贴中没有、但之前存在的旧信号会被自动删除。
+                    <br />
+                    删除前有倒计时（设置中可选 <b className="text-sky-500">0 / 10 / 30 秒</b>），
+                    <br />
+                    倒计时内点顶部红色撤销按钮或按 <b className="text-sky-500">Ctrl + Z</b> 可恢复。
+                    <br />
+                    默认只对下一次粘贴生效；在设置中开启
+                    <br />
+                    <b className="text-sky-500">Keep &quot;Lazy delete&quot; Enabled</b> 可保持常开。
                   </InfoDrawer>
                 </div>
               ),

@@ -301,6 +301,7 @@ export enum OutCommand {
   getCorporationTicker = 'get_corporation_ticker',
   getSystemKills = 'get_system_kills',
   getSystemsKills = 'get_systems_kills',
+  getJspaceCorporations = 'get_jspace_corporations',
   addSystemComment = 'addSystemComment',
   deleteSystemComment = 'deleteSystemComment',
   getSystemComments = 'getSystemComments',

@@ -66,7 +66,7 @@ defmodule WandererAppWeb.MapCoreEventHandler do
         %{view_system: false} ->
           socket
           |> Phoenix.LiveView.put_flash(:error, "Your access to the map have been revoked.")
-          |> Phoenix.LiveView.push_navigate(to: ~p"/maps")
+          |> Phoenix.LiveView.push_navigate(to: maps_path(socket))
 
         %{track_character: track_character} ->
           {:ok, map_characters} =
@@ -151,7 +151,7 @@ defmodule WandererAppWeb.MapCoreEventHandler do
           :error,
           "Something went wrong. Please try one more time or submit an issue."
         )
-        |> push_navigate(to: ~p"/maps")
+        |> push_navigate(to: maps_path(socket))
     end
   end
 
@@ -195,9 +195,14 @@ defmodule WandererAppWeb.MapCoreEventHandler do
   def handle_ui_event(
         "ui_loaded",
         %{"version" => version},
-        %{assigns: %{map_slug: map_slug, app_version: app_version} = assigns} = socket
+        %{assigns: %{map_slug: map_slug} = assigns} = socket
       ) do
-    is_version_valid? = to_string(version) == to_string(app_version)
+    # `app_version` is assigned by Nav's on_mount, which the desktop
+    # live_session does not use. Without it there is no version banner and no
+    # pending reload to wait for, so the first `ui_loaded` must not be dropped
+    # (that leaves the map loader spinning forever).
+    app_version = Map.get(assigns, :app_version)
+    is_version_valid? = is_nil(app_version) or to_string(version) == to_string(app_version)
 
     # The frontend writes `wandererLastVersion` only after a delayed reload. Before
     # that (first load / fresh tab) `version` is nil, so the version check would
@@ -277,9 +282,7 @@ defmodule WandererAppWeb.MapCoreEventHandler do
       |> assign(map_user_settings: user_settings)
       # Kept as its own assign so the add-system handlers can match on it in a
       # guard: the settings struct stores JSON, which no guard can look inside.
-      |> assign(
-        hide_unsubscribed_clusters?: hide_unsubscribed_clusters?(user_settings)
-      )
+      |> assign(hide_unsubscribed_clusters?: hide_unsubscribed_clusters?(user_settings))
 
     {:noreply, socket}
   end
@@ -442,6 +445,10 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     Logger.debug(fn -> "unhandled map ui event: #{inspect(event)} #{inspect(body)}" end)
     {:noreply, socket}
   end
+
+  # Desktop sessions must return to the desktop map chooser, not the web list.
+  defp maps_path(%{assigns: %{desktop_mode?: true}}), do: ~p"/desktop"
+  defp maps_path(_socket), do: ~p"/maps"
 
   defp save_default_settings(map_id, settings, current_user) do
     # Find the character to use as actor

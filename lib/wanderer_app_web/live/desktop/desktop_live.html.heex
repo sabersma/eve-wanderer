@@ -1,0 +1,36 @@
+<div class="w-full h-full overflow-auto bg-stone-950">
+  <div class="mx-auto flex w-full max-w-6xl flex-col gap-8 p-8">
+    <header class="flex flex-col gap-1">
+      <h1 class="text-2xl font-semibold text-gray-100">Wanderer Desktop</h1>
+      <p class="text-sm text-stone-400">选择一个地图开始。</p>
+    </header>
+
+    <div
+      :if={@maps == []}
+      class="rounded border border-stone-800 bg-stone-900/60 p-8 text-center text-sm text-stone-400"
+    >
+      当前账号没有可访问的地图。请先在 Web 端创建地图或申请权限。
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <.link
+        :for={map <- @maps}
+        navigate={~p"/desktop/#{map.slug}"}
+        class="group flex min-h-[160px] flex-col justify-between rounded border border-stone-800 bg-stone-900/70 p-5 transition hover:border-stone-600 hover:bg-stone-900"
+      >
+        <div class="flex flex-col gap-2">
+          <h2 class="text-base font-semibold text-gray-100 group-hover:text-white">
+            {map.name}
+          </h2>
+          <p :if={map.description not in [nil, ""]} class="line-clamp-2 text-sm text-stone-400">
+            {map.description}
+          </p>
+        </div>
+        <div class="mt-4 flex items-center justify-between text-xs text-stone-500">
+          <span>{map.slug}</span>
+          <span class="text-stone-300 group-hover:text-white">打开 →</span>
+        </div>
+      </.link>
+    </div>
+  </div>
+</div>

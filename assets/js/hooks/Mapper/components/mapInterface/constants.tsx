@@ -9,6 +9,8 @@ import {
   WRoutesUser,
   WRoutesBy,
   WSystemKills,
+  JspaceWidget,
+  LocalBookmarks,
 } from '@/hooks/Mapper/components/mapInterface/widgets';
 
 export const CURRENT_WINDOWS_VERSION = 9;
@@ -24,6 +26,8 @@ export enum WidgetsIds {
   kills = 'kills',
   comments = 'comments',
   userRoutes = 'userRoutes',
+  jspace = 'jspace',
+  bookmarks = 'bookmarks',
 }
 
 export const STORED_VISIBLE_WIDGETS_DEFAULT = [
@@ -97,6 +101,20 @@ export const DEFAULT_WIDGETS: WindowProps[] = [
     zIndex: 0,
     content: () => <CommentsWidget />,
   },
+  {
+    id: WidgetsIds.jspace,
+    position: { x: 790, y: 10 },
+    size: { width: 300, height: 300 },
+    zIndex: 0,
+    content: () => <JspaceWidget />,
+  },
+  {
+    id: WidgetsIds.bookmarks,
+    position: { x: 790, y: 320 },
+    size: { width: 420, height: 520 },
+    zIndex: 0,
+    content: () => <LocalBookmarks />,
+  },
 ];
 
 type WidgetsCheckboxesType = {
@@ -140,5 +158,13 @@ export const WIDGETS_CHECKBOXES_PROPS: WidgetsCheckboxesType = [
   {
     id: WidgetsIds.comments,
     label: 'Comments',
+  },
+  {
+    id: WidgetsIds.jspace,
+    label: 'J-Space',
+  },
+  {
+    id: WidgetsIds.bookmarks,
+    label: 'Local Bookmarks',
   },
 ];

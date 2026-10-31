@@ -7,15 +7,16 @@ import { useSystemKills } from './hooks/useSystemKills';
 import { KillsSettingsDialog } from './components/SystemKillsSettingsDialog';
 import { isWormholeSpace } from '@/hooks/Mapper/components/map/helpers/isWormholeSpace';
 import { getSystemStaticInfo } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic';
+import { useDesktopActiveSystem } from '@/hooks/Mapper/desktop/useDesktopActiveSystem';
 
 const SystemKillsContent = () => {
   const {
-    data: { selectedSystems, isSubscriptionActive },
+    data: { isSubscriptionActive },
     outCommand,
     storedSettings: { settingsKills },
   } = useMapRootState();
 
-  const [systemId] = selectedSystems || [];
+  const { systemId } = useDesktopActiveSystem();
   const whCacheRef = useMemo(() => new Map<number, boolean>(), []);
 
   const isWormholeSystem = useCallback(
@@ -98,11 +99,7 @@ const SystemKillsContent = () => {
 
 export const WSystemKills = () => {
   const [settingsDialogVisible, setSettingsDialogVisible] = useState(false);
-  const {
-    data: { selectedSystems },
-  } = useMapRootState();
-
-  const [systemId] = selectedSystems || [];
+  const { systemId } = useDesktopActiveSystem();
 
   const handleOpenSettings = useCallback(() => setSettingsDialogVisible(true), []);
 

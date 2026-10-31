@@ -5,7 +5,14 @@ import {
 import { SystemsSettingsProvider } from '@/hooks/Mapper/components/mapRootContent/components/SignatureSettings/Provider.tsx';
 import { WdButton } from '@/hooks/Mapper/components/ui-kit';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
-import { MassState, OutCommand, SignatureGroup, SignatureKind, SystemSignature, TimeStatus } from '@/hooks/Mapper/types';
+import {
+  MassState,
+  OutCommand,
+  SignatureGroup,
+  SignatureKind,
+  SystemSignature,
+  TimeStatus,
+} from '@/hooks/Mapper/types';
 import { Dialog } from 'primereact/dialog';
 import { InputText } from 'primereact/inputtext';
 import { useCallback, useEffect } from 'react';
@@ -232,7 +239,9 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData, onDel
       visible={show}
       draggable
       resizable={false}
-      style={{ width: '390px' }}
+      // The signature widget window is only ~380px wide in the desktop client,
+      // so a fixed 390px dialog would overflow it.
+      style={{ width: 'min(390px, calc(100vw - 24px))' }}
       onShow={handleShow}
       onHide={() => {
         if (!show) {
@@ -290,7 +299,14 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData, onDel
 
               <div className="flex gap-2 justify-between px-[0.75rem] pb-[0.5rem]">
                 {signatureData && onDelete ? (
-                  <WdButton type="button" outlined size="small" severity="danger" label="Delete" onClick={handleDelete} />
+                  <WdButton
+                    type="button"
+                    outlined
+                    size="small"
+                    severity="danger"
+                    label="Delete"
+                    onClick={handleDelete}
+                  />
                 ) : (
                   <span />
                 )}

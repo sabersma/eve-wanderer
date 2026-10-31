@@ -1,5 +1,15 @@
 import { ContextStoreDataUpdate, useContextStore } from '@/hooks/Mapper/utils';
-import { createContext, Dispatch, ForwardedRef, forwardRef, SetStateAction, useContext, useEffect, useMemo, useRef } from 'react';
+import {
+  createContext,
+  Dispatch,
+  ForwardedRef,
+  forwardRef,
+  SetStateAction,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import {
   ActivitySummary,
   CommandLinkSignatureToSystem,
@@ -48,6 +58,8 @@ import { useGlobalHooks } from '@/hooks/Mapper/mapRootProvider/hooks/useGlobalHo
 import { useViewModeSettings } from '@/hooks/Mapper/mapRootProvider/hooks/useViewModeSettings.ts';
 import { DEFAULT_SIGNATURE_SETTINGS, SignatureSettingsType } from '@/hooks/Mapper/constants/signatures';
 import { computeVisibleSystemIds } from '@/hooks/Mapper/components/mapWrapper/hooks/useFilteredMapData';
+import { resolveFollowedSystemId } from '@/hooks/Mapper/desktop/resolve';
+import { useDesktopBridgeState } from '@/hooks/Mapper/desktop/useDesktopBridge';
 
 export type ViewMode = 'all' | 'home';
 
@@ -252,6 +264,7 @@ const MapRootHandlers = forwardRef(({ children }: WithChildren, fwdRef: Forwarde
 // eslint-disable-next-line react/display-name
 export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProviderProps) => {
   const { update, ref } = useContextStore<MapRootData>({ ...INITIAL_DATA });
+  const { info: desktopInfo, lastEve, followEnabled } = useDesktopBridgeState();
 
   const storedSettings = useMapUserSettings(ref, outCommand);
   const { isReady } = storedSettings;
@@ -275,6 +288,18 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
     [ref.characters, ref.userCharacters],
   );
 
+  // Desktop follow windows need the active EVE character's system to stay
+  // visible even before the user has subscribed. Display-only: it does not
+  // change the server-side add/delete rules.
+  const desktopExtraSeedIds = useMemo(() => {
+    if (!desktopInfo.active || desktopInfo.mode !== 'widget' || !followEnabled) {
+      return [];
+    }
+
+    const systemId = resolveFollowedSystemId(ref.characters, ref.userCharacters, lastEve);
+    return systemId ? [systemId] : [];
+  }, [desktopInfo.active, desktopInfo.mode, followEnabled, ref.characters, ref.userCharacters, lastEve]);
+
   // Visible systems for the current view, shared with the search list (TopSearch)
   // so it follows the same subscription filtering as the map.
   const visibleSystemIds = useMemo(
@@ -287,6 +312,7 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
         myCharSystemIds,
         ref.manuallyAddedSystemIds,
         ref.userRemoteSettings.hide_unsubscribed_clusters,
+        desktopExtraSeedIds,
       ),
     [
       ref.systems,
@@ -296,13 +322,13 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
       myCharSystemIds,
       ref.manuallyAddedSystemIds,
       ref.userRemoteSettings.hide_unsubscribed_clusters,
+      desktopExtraSeedIds,
     ],
   );
 
   // Role-based default view mode, applied once permissions are known.
   // Admin/manager start on the global view; member/viewer on the subscription
-  // view. Persisted localStorage is no longer used for the default (the role
-  // decides it), so an admin re-logging in never lands on an empty "home" view.
+  // view. The desktop shell is always subscription-only, even for admins.
   const isGlobalAllowed = !!(ref.userPermissions.admin_map || ref.userPermissions.manage_map);
   const permissionsLoaded = Object.keys(ref.userPermissions).length > 0;
 
@@ -310,25 +336,31 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
   useEffect(() => {
     if (isReady && permissionsLoaded && !viewModeInitialized.current) {
       viewModeInitialized.current = true;
-      update({ viewMode: isGlobalAllowed ? 'all' : 'home' });
+      update({ viewMode: desktopInfo.active || !isGlobalAllowed ? 'home' : 'all' });
     }
-  }, [isReady, permissionsLoaded, isGlobalAllowed, update]);
+  }, [isReady, permissionsLoaded, isGlobalAllowed, desktopInfo.active, update]);
 
-  // Safety net: a member/viewer must never end up in the global view.
+  // Safety net: a member/viewer (and every desktop window) must never end up in
+  // the global view.
   useEffect(() => {
-    if (permissionsLoaded && !isGlobalAllowed && ref.viewMode === 'all') {
+    if (permissionsLoaded && (desktopInfo.active || !isGlobalAllowed) && ref.viewMode === 'all') {
       update({ viewMode: 'home' });
     }
-  }, [permissionsLoaded, isGlobalAllowed, ref.viewMode, update]);
+  }, [permissionsLoaded, isGlobalAllowed, desktopInfo.active, ref.viewMode, update]);
 
   // Sync MapRootData viewMode changes -> persisted settings
   const prevViewModeRef = useRef<ViewMode>(ref.viewMode);
   useEffect(() => {
     if (ref.viewMode !== prevViewModeRef.current) {
       prevViewModeRef.current = ref.viewMode;
-      updateViewModeSettings({ viewMode: ref.viewMode });
+
+      // Desktop forces the subscription view locally. Persisting that would
+      // change the user's web preference too, so desktop never writes it.
+      if (!desktopInfo.active) {
+        updateViewModeSettings({ viewMode: ref.viewMode });
+      }
     }
-  }, [ref.viewMode, updateViewModeSettings]);
+  }, [ref.viewMode, updateViewModeSettings, desktopInfo.active]);
 
   // When switching back from a home view to the "all" view, re-fetch the full
   // map (ui_loaded → init) so systems/connections generated while the tab was
@@ -339,13 +371,13 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
     const prevMode = prevModeForReloadRef.current;
     prevModeForReloadRef.current = ref.viewMode;
 
-    if (prevMode === 'home' && ref.viewMode === 'all') {
+    if (!desktopInfo.active && prevMode === 'home' && ref.viewMode === 'all') {
       outCommand({
         type: OutCommand.uiLoaded,
         data: { version: localStorage.getItem('wandererLastVersion') },
       });
     }
-  }, [ref.viewMode, outCommand]);
+  }, [ref.viewMode, outCommand, desktopInfo.active]);
 
   return (
     <MapRootContext.Provider

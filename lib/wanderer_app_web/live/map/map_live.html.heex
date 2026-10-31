@@ -1,8 +1,16 @@
 <.live_component module={WandererAppWeb.MapLoader} id="map-loader" />
 
-<div class="w-full h-full" id="mapper" phx-hook="Mapper" phx-update="ignore"></div>
+<div
+  class="w-full h-full"
+  id="mapper"
+  phx-hook="Mapper"
+  phx-update="ignore"
+  data-desktop={to_string(@desktop_mode?)}
+  data-widget={@desktop_widget}
+  data-map-slug={@map_slug}
+></div>
 
-<div class="absolute top-0 mt-2 left-16 flex gap-1">
+<div :if={!@desktop_mode?} class="absolute top-0 mt-2 left-16 flex gap-1">
   <.live_component
     :if={not is_nil(assigns |> Map.get(:map_slug))}
     module={WandererAppWeb.MapPicker}

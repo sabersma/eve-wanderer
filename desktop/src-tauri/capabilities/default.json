@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Wanderer main and widget windows, including the remote server origin.",
+  "windows": ["main", "widget-*", "server-settings"],
+  "remote": {
+    "urls": ["http://localhost:*", "http://127.0.0.1:*", "https://*"]
+  },
+  "permissions": [
+    "core:default",
+    "allow-desktop-ready",
+    "allow-get-server-url",
+    "allow-set-server-url",
+    "allow-open-server-settings",
+    "allow-open-widget",
+    "allow-open-main",
+    "allow-close-self",
+    "allow-set-always-on-top",
+    "allow-set-window-title"
+  ]
+}

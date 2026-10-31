@@ -4,8 +4,10 @@ defmodule WandererAppWeb.MapLive do
 
   require Logger
 
+  @desktop_widgets ~w(signatures jspace bookmarks kills characters)
+
   @impl true
-  def mount(%{"slug" => map_slug} = _params, _session, socket) when is_connected?(socket) do
+  def mount(%{"slug" => map_slug} = params, _session, socket) when is_connected?(socket) do
     Process.send_after(self(), %{event: :load_map}, Enum.random(10..800))
 
     {:ok,
@@ -18,7 +20,9 @@ defmodule WandererAppWeb.MapLive do
        server_online: false,
        map_subscriptions_enabled: WandererApp.Env.map_subscriptions_enabled?(),
        active_subscription: nil,
-       user_permissions: nil
+       user_permissions: nil,
+       desktop_mode?: desktop_mode?(socket),
+       desktop_widget: desktop_widget(socket, params)
      )
      |> push_event("js-exec", %{
        to: "#map-loader",
@@ -28,7 +32,7 @@ defmodule WandererAppWeb.MapLive do
   end
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     {:ok,
      socket
      |> assign(
@@ -38,7 +42,9 @@ defmodule WandererAppWeb.MapLive do
        server_online: false,
        active_subscription: nil,
        map_subscriptions_enabled: WandererApp.Env.map_subscriptions_enabled?(),
-       user_permissions: nil
+       user_permissions: nil,
+       desktop_mode?: desktop_mode?(socket),
+       desktop_widget: desktop_widget(socket, params)
      )}
   end
 
@@ -52,7 +58,13 @@ defmodule WandererAppWeb.MapLive do
         %{assigns: %{map_id: map_id}} = socket
       ) do
     Phoenix.PubSub.unsubscribe(WandererApp.PubSub, map_id)
-    {:noreply, socket |> push_navigate(to: ~p"/#{map_slug}")}
+
+    target =
+      if socket.assigns[:desktop_mode?],
+        do: ~p"/desktop/#{map_slug}",
+        else: ~p"/#{map_slug}"
+
+    {:noreply, socket |> push_navigate(to: target)}
   end
 
   def handle_info(:no_main_character_set, socket),
@@ -69,21 +81,21 @@ defmodule WandererAppWeb.MapLive do
       {:noreply,
        socket
        |> put_flash(:info, "This map has been deleted.")
-       |> push_navigate(to: ~p"/maps")}
+       |> push_navigate(to: maps_path(socket))}
 
   def handle_info(:no_access, socket),
     do:
       {:noreply,
        socket
        |> put_flash(:error, "You don't have an access to this map.")
-       |> push_navigate(to: ~p"/maps")}
+       |> push_navigate(to: maps_path(socket))}
 
   def handle_info(:no_permissions, socket),
     do:
       {:noreply,
        socket
        |> put_flash(:error, "You don't have permissions to use this map.")
-       |> push_navigate(to: ~p"/maps")}
+       |> push_navigate(to: maps_path(socket))}
 
   def handle_info(:not_all_characters_tracked, %{assigns: %{map_slug: map_slug}} = socket),
     do:
@@ -114,5 +126,35 @@ defmodule WandererAppWeb.MapLive do
   defp apply_action(socket, :index, _params) do
     socket
     |> assign(:active_page, :map)
+    |> assign(:desktop_mode?, false)
+    |> assign(:desktop_widget, nil)
   end
+
+  defp apply_action(socket, :desktop, _params) do
+    socket
+    |> assign(:active_page, :map)
+    |> assign(:desktop_mode?, true)
+    |> assign(:desktop_widget, nil)
+  end
+
+  defp apply_action(socket, :widget, %{"widget" => widget}) when widget in @desktop_widgets do
+    socket
+    |> assign(:active_page, :map)
+    |> assign(:desktop_mode?, true)
+    |> assign(:desktop_widget, widget)
+  end
+
+  defp apply_action(socket, :widget, _params) do
+    push_navigate(socket, to: ~p"/desktop/#{socket.assigns.map_slug}")
+  end
+
+  defp desktop_mode?(socket), do: socket.assigns.live_action in [:desktop, :widget]
+
+  defp desktop_widget(%{assigns: %{live_action: :widget}}, params),
+    do: Map.get(params, "widget")
+
+  defp desktop_widget(_socket, _params), do: nil
+
+  defp maps_path(%{assigns: %{desktop_mode?: true}}), do: ~p"/desktop"
+  defp maps_path(_socket), do: ~p"/maps"
 end

@@ -6,6 +6,8 @@ import { OutCommand } from '@/hooks/Mapper/types';
 import { Commands } from '@/hooks/Mapper/types/mapHandlers.ts';
 import { emitMapEvent } from '@/hooks/Mapper/events';
 
+import { useDesktopBridgeState } from '@/hooks/Mapper/desktop/useDesktopBridge';
+
 import classes from './ViewModeSelector.module.scss';
 
 interface SearchResult {
@@ -38,7 +40,10 @@ export const ViewModeSelector = () => {
     userRemoteSettings,
   } = data;
 
-  const isGlobalAllowed = userPermissions.admin_map || userPermissions.manage_map;
+  const isGlobalAllowed = !!(userPermissions.admin_map || userPermissions.manage_map);
+  // Desktop is subscription-only even for admins, but the subscription input
+  // and the hide/show scope switch live in this component and must stay.
+  const { info: desktopInfo } = useDesktopBridgeState();
 
   const [searchText, setSearchText] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -158,7 +163,7 @@ export const ViewModeSelector = () => {
 
   return (
     <div className={classes.ViewModeSelector}>
-      {isGlobalAllowed && (
+      {isGlobalAllowed && !desktopInfo.active && (
         <div className={classes.ToggleGroup}>
           <button
             className={`${classes.ToggleButton} ${viewMode === 'all' ? classes.ToggleButtonActive : ''}`}

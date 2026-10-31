@@ -2,6 +2,7 @@ import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { Dialog } from 'primereact/dialog';
 import { useEffect, useState } from 'react';
 import { WdButton } from '@/hooks/Mapper/components/ui-kit';
+import { useDesktopBridgeState } from '@/hooks/Mapper/desktop/useDesktopBridge';
 
 /**
  * Reminder shown to normal (non admin/manager) users when they enter the map
@@ -14,6 +15,7 @@ export const SubscribeReminderDialog = () => {
   } = useMapRootState();
 
   const [dismissed, setDismissed] = useState(false);
+  const { info: desktopInfo } = useDesktopBridgeState();
 
   const isGlobalAllowed = !!(userPermissions.admin_map || userPermissions.manage_map);
   const permissionsLoaded = Object.keys(userPermissions ?? {}).length > 0;
@@ -25,7 +27,9 @@ export const SubscribeReminderDialog = () => {
     setDismissed(false);
   }, [subscribedSystemIds.length]);
 
-  const visible = permissionsLoaded && !isGlobalAllowed && !hasSubscription && !dismissed;
+  // Desktop is subscription-only for everyone (including admins), so the
+  // reminder is not limited to member/viewer there.
+  const visible = permissionsLoaded && !hasSubscription && !dismissed && (!isGlobalAllowed || desktopInfo.active);
 
   return (
     <Dialog

@@ -1,5 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import Mapper from './MapRoot';
+import { initDesktopBridge } from './desktop';
+import type { DesktopWidget } from './desktop/types';
 
 const LAST_VERSION_KEY = 'wandererLastVersion';
 const UI_LOADED_EVENT = 'ui_loaded';
@@ -14,6 +16,15 @@ export default {
     const activeVersion = localStorage.getItem(LAST_VERSION_KEY);
     this._rootEl = createRoot(rootEl!);
 
+    const widget = (this.el.dataset.widget || null) as DesktopWidget | null;
+
+    initDesktopBridge({
+      active: this.el.dataset.desktop === 'true',
+      mode: widget ? 'widget' : 'main',
+      widget,
+      mapSlug: this.el.dataset.mapSlug || null,
+    });
+
     const handleError = (error: Error, componentStack: string) => {
       this.pushEvent('log_map_error', { error: error.message, componentStack });
     };
@@ -24,6 +35,8 @@ export default {
       pushEventAsync: this.pushEventAsync.bind(this),
       onError: handleError,
     });
+
+    void window.__wandererDesktop?.ready();
 
     this.pushEvent(UI_LOADED_EVENT, { version: activeVersion });
   },
@@ -36,6 +49,7 @@ export default {
 
   reconnected() {
     const activeVersion = localStorage.getItem(LAST_VERSION_KEY);
+    void window.__wandererDesktop?.ready();
     this.pushEvent(UI_LOADED_EVENT, { version: activeVersion });
   },
 

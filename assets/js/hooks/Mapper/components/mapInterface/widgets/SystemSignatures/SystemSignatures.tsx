@@ -9,19 +9,41 @@ import { SystemSignaturesHeader } from './SystemSignatureHeader';
 import { SystemSignaturesContent } from './SystemSignaturesContent';
 import { SystemSignatureSettingsDialog } from './SystemSignatureSettingsDialog';
 import { SignatureSettings } from '@/hooks/Mapper/components/mapRootContent/components/SignatureSettings';
+import { useDesktopActiveSystem } from '@/hooks/Mapper/desktop/useDesktopActiveSystem';
 
 export const SystemSignatures = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showAddSignature, setShowAddSignature] = useState(false);
 
   const {
-    data: { selectedSystems },
     outCommand,
     storedSettings: { settingsSignatures, settingsSignaturesUpdate },
   } = useMapRootState();
 
-  const [systemId] = selectedSystems;
-  const isSystemSelected = useMemo(() => selectedSystems.length === 1, [selectedSystems.length]);
+  // Follows the last active EVE client inside a desktop widget window; on the
+  // web (and with follow disabled) this is the current map selection. A
+  // detached widget also falls back to the main window's selection.
+  const { systemId, lastEve, followEnabled, matchedCharacter } = useDesktopActiveSystem();
+  const isSystemSelected = systemId != null;
+
+  // The widget has no map of its own, so "no system" is expected until EVE
+  // follow resolves (or the user selects a system in the main window). Explain
+  // it instead of leaving the + button silently doing nothing.
+  const noSystemHint = (() => {
+    if (!followEnabled) {
+      return '跟随已关闭。请在顶部工具条开启“跟随”，或在主图选择一个星系。';
+    }
+    if (!lastEve) {
+      return '等待 EVE 客户端激活；也可以先在主图选择一个星系。';
+    }
+    if (!matchedCharacter) {
+      return `未在地图中匹配到角色「${lastEve.title}」；请在主图选择一个星系。`;
+    }
+    if (!matchedCharacter.location?.solar_system_id) {
+      return `${matchedCharacter.name} 的位置还未同步，请稍候，或先在主图选择一个星系。`;
+    }
+    return '请先在主图选择一个星系。';
+  })();
 
   const handleLazyDeleteToggle = useCallback(
     (value: boolean) => {
@@ -43,7 +65,7 @@ export const SystemSignatures = () => {
     handlePaste,
     hasUnsupportedLanguage,
   } = useSystemSignaturesData({
-    systemId,
+    systemId: systemId ?? '',
     settings: settingsSignatures,
     onLazyDeleteChange: handleLazyDeleteToggle,
   });
@@ -83,13 +105,16 @@ export const SystemSignatures = () => {
           onUndoClick={handleUndo}
           onSettingsClick={openSettings}
           onAddSignature={() => setShowAddSignature(true)}
+          addDisabled={!isSystemSelected}
+          addDisabledReason={noSystemHint}
         />
       }
       windowId={SIGNATURE_WINDOW_ID}
     >
       {!isSystemSelected ? (
-        <div className="w-full h-full flex justify-center items-center select-none text-center text-stone-400/80 text-sm">
-          System is not selected
+        <div className="w-full h-full flex flex-col gap-2 justify-center items-center select-none text-center px-3">
+          <span className="text-stone-400/80 text-sm">System is not selected</span>
+          <span className="text-stone-500 text-xs leading-relaxed">{noSystemHint}</span>
         </div>
       ) : (
         <SystemSignaturesContent

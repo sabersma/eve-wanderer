@@ -59,6 +59,21 @@ defmodule WandererAppWeb.UserAuth do
   end
 
   @doc """
+  Desktop windows skip the web welcome page and go straight to EVE SSO.
+
+  `/auth/eve?desktop=1` stores the desktop flag in the session, so the callback
+  can return to `/desktop` instead of the web `/characters` page. Without this
+  a freshly installed client looks exactly like the browser after login and has
+  no way back to the desktop maps.
+  """
+  def on_mount(:ensure_authenticated_desktop, params, session, socket) do
+    case session do
+      %{"user_id" => _} -> on_mount(:ensure_authenticated, params, session, socket)
+      _ -> {:halt, LiveView.redirect(socket, to: ~p"/auth/eve?desktop=1")}
+    end
+  end
+
+  @doc """
   Authenticates the user by looking into the session.
   """
   def fetch_current_user(conn, _opts) do

@@ -496,3 +496,12 @@ config :wanderer_app, :external_events,
     |> get_var_from_path_or_env("WANDERER_WEBHOOKS_ENABLED", "false")
     |> String.to_existing_atom(),
   webhook_timeout_ms: config_dir |> get_int_from_path_or_env("WANDERER_WEBHOOK_TIMEOUT_MS", 15000)
+
+# J-Space Helper integration (Wanderer server -> jspace server, token auth).
+# Both values must be configured; leaving them empty disables the map widget
+# (it reports "not configured") instead of calling an unauthenticated endpoint.
+config :wanderer_app, :jspace,
+  base_url: config_dir |> get_var_from_path_or_env("JSPACE_BASE_URL", ""),
+  api_token: config_dir |> get_var_from_path_or_env("JSPACE_API_TOKEN", ""),
+  timeout_ms: config_dir |> get_int_from_path_or_env("JSPACE_TIMEOUT_MS", 3000),
+  cache_ttl_ms: config_dir |> get_int_from_path_or_env("JSPACE_CACHE_TTL_MS", 300_000)

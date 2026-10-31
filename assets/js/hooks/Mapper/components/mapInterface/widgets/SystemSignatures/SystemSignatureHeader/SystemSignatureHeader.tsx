@@ -12,7 +12,7 @@ import { CheckboxChangeEvent } from 'primereact/checkbox';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
 import useMaxWidth from '@/hooks/Mapper/hooks/useMaxWidth.ts';
 import { COMPACT_MAX_WIDTH } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants.ts';
-import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import { useDesktopActiveSystem } from '@/hooks/Mapper/desktop/useDesktopActiveSystem';
 
 export type HeaderProps = {
   sigCount: number;
@@ -23,6 +23,8 @@ export type HeaderProps = {
   onUndoClick: () => void;
   onSettingsClick: () => void;
   onAddSignature: () => void;
+  addDisabled?: boolean;
+  addDisabledReason?: string;
 };
 
 export const SystemSignaturesHeader = ({
@@ -34,13 +36,11 @@ export const SystemSignaturesHeader = ({
   onUndoClick,
   onSettingsClick,
   onAddSignature,
+  addDisabled = false,
+  addDisabledReason,
 }: HeaderProps) => {
-  const {
-    data: { selectedSystems },
-  } = useMapRootState();
-
-  const [systemId] = selectedSystems;
-  const isNotSelectedSystem = selectedSystems.length !== 1;
+  const { systemId } = useDesktopActiveSystem();
+  const isNotSelectedSystem = systemId == null;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isCompact = useMaxWidth(containerRef, COMPACT_MAX_WIDTH);
@@ -58,8 +58,8 @@ export const SystemSignaturesHeader = ({
         </div>
 
         <LayoutEventBlocker className="flex gap-2.5">
-          <WdTooltipWrapper content="Add signature">
-            <WdImgButton className={PrimeIcons.PLUS} onClick={onAddSignature} />
+          <WdTooltipWrapper content={addDisabled ? (addDisabledReason ?? 'No active system') : 'Add signature'}>
+            <WdImgButton className={PrimeIcons.PLUS} disabled={addDisabled} onClick={onAddSignature} />
           </WdTooltipWrapper>
 
           <WdTooltipWrapper content="Enable Lazy delete">

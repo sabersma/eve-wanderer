@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wanderer · 服务器设置</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0c0a09;
+        --panel: #1c1917;
+        --border: #44403c;
+        --text: #e7e5e4;
+        --muted: #a8a29e;
+        --accent: #f97316;
+        --danger: #f87171;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      }
+
+      main {
+        width: 100%;
+        max-width: 460px;
+        padding: 28px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 20px;
+        font-weight: 600;
+      }
+
+      .subtitle {
+        margin: 0 0 20px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      input {
+        width: 100%;
+        padding: 11px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #0c0a09;
+        color: var(--text);
+        font-size: 14px;
+        outline: none;
+      }
+
+      input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.18);
+      }
+
+      .hint {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .error {
+        min-height: 18px;
+        margin: 10px 0 0;
+        color: var(--danger);
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      button {
+        padding: 9px 18px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--text);
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      button:hover:not(:disabled) {
+        border-color: #78716c;
+      }
+
+      button.primary {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #1c1917;
+        font-weight: 600;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 id="title">设置 Wanderer 服务器</h1>
+      <p class="subtitle" id="subtitle">
+        请输入与 Web 版相同的服务器地址，这样账号、地图和订阅数据才能保持一致。
+      </p>
+
+      <form id="form" novalidate>
+        <label for="server-url">服务器地址</label>
+        <input
+          id="server-url"
+          name="server-url"
+          type="text"
+          inputmode="url"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="https://wanderer.example.com"
+          required
+        />
+        <p class="hint">支持 https://example.com 或直接输入 example.com（自动补全 https）。</p>
+        <p class="error" id="error" role="alert"></p>
+
+        <div class="actions">
+          <button type="button" id="cancel" hidden>取消</button>
+          <button type="submit" class="primary" id="submit">保存并连接</button>
+        </div>
+      </form>
+    </main>
+
+    <script>
+      (() => {
+        const form = document.getElementById('form');
+        const input = document.getElementById('server-url');
+        const submit = document.getElementById('submit');
+        const cancel = document.getElementById('cancel');
+        const error = document.getElementById('error');
+        const title = document.getElementById('title');
+        const subtitle = document.getElementById('subtitle');
+
+        const invoke = window.__TAURI__?.core?.invoke;
+
+        if (!invoke) {
+          error.textContent = '未检测到桌面运行时，请从安装包启动 Wanderer。';
+          submit.disabled = true;
+          return;
+        }
+
+        const setError = message => {
+          error.textContent = message || '';
+        };
+
+        // Reopening the form from the map prefills the current address; the
+        // first launch has none and therefore offers no "cancel" action.
+        invoke('get_server_url')
+          .then(current => {
+            if (!current) {
+              return;
+            }
+
+            input.value = current;
+            title.textContent = '修改 Wanderer 服务器';
+            subtitle.textContent = '保存后会关闭当前地图的小窗口，并重新连接到新的服务器。';
+            cancel.hidden = false;
+            input.focus();
+            input.select();
+          })
+          .catch(() => {});
+
+        form.addEventListener('submit', async event => {
+          event.preventDefault();
+          setError('');
+          submit.disabled = true;
+          submit.textContent = '连接中…';
+
+          try {
+            await invoke('set_server_url', { url: input.value.trim() });
+            // The Rust side navigates the main window (or closes this settings
+            // window) on success, so there is nothing else to do here.
+          } catch (reason) {
+            setError(typeof reason === 'string' ? reason : String(reason));
+            submit.disabled = false;
+            submit.textContent = '保存并连接';
+            input.focus();
+          }
+        });
+
+        cancel.addEventListener('click', () => {
+          invoke('close_self').catch(() => {});
+        });
+      })();
+    </script>
+  </body>
+</html>

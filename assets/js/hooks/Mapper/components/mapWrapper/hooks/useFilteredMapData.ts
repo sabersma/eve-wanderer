@@ -9,13 +9,18 @@ import { bfsReachable, buildAdjacencyList } from '@/hooks/Mapper/helpers/graph.t
  * Shared by `useFilteredMapData` (layout/filtering) and the TopSearch search
  * list so both stay consistent:
  * - 'all' mode → every system.
- * - subscription view with no subscription → empty (nothing rendered).
+ * - subscription view with no subscription and no extra seed → empty.
  * - otherwise → BFS from subscribed systems + my characters' current systems.
  *
  * `hideUnsubscribed` narrows the subscription view to clusters reachable from a
- * subscribed system. It deliberately drops both of the other seed sources:
+ * subscribed system. It deliberately drops the "my character" seed source:
  * a character standing in a cluster the user has not subscribed to is exactly
  * what the mode is meant to hide, so their own character's systems go too.
+ *
+ * `extraSeedIds` is a display-only escape hatch for the desktop follow window:
+ * the system of the last active EVE client stays visible even before the user
+ * has subscribed. It does not grant any write permission, and the server-side
+ * add/delete rules are unchanged.
  */
 export function computeVisibleSystemIds(
   systems: SolarSystemRawType[],
@@ -25,19 +30,23 @@ export function computeVisibleSystemIds(
   myCharSystemIds: string[],
   manuallyAddedSystemIds: string[],
   hideUnsubscribed = false,
+  extraSeedIds: string[] = [],
 ): Set<string> {
   if (viewMode === 'all') {
     return new Set(systems.map(s => s.id));
   }
 
-  // Before the first subscription, render nothing.
-  if (subscribedSystemIds.length === 0) {
+  const displaySeedIds = extraSeedIds.filter(id => id != null && id !== '');
+
+  // Before the first subscription, render nothing unless a desktop follow
+  // window has a system to show.
+  if (subscribedSystemIds.length === 0 && displaySeedIds.length === 0) {
     return new Set();
   }
 
   const seedIds = hideUnsubscribed
-    ? subscribedSystemIds
-    : [...new Set([...subscribedSystemIds, ...myCharSystemIds])];
+    ? [...new Set([...subscribedSystemIds, ...displaySeedIds])]
+    : [...new Set([...subscribedSystemIds, ...myCharSystemIds, ...displaySeedIds])];
 
   const seeds = [...new Set(seedIds)].filter(id => systems.some(s => s.id === id));
 
@@ -92,6 +101,7 @@ export function useFilteredMapData(
   myCharSystemIds: string[],
   manuallyAddedSystemIds: string[],
   hideUnsubscribed = false,
+  extraSeedIds: string[] = [],
 ): FilteredMapData {
   return useMemo(() => {
     const visibleSystemIds = computeVisibleSystemIds(
@@ -102,6 +112,7 @@ export function useFilteredMapData(
       myCharSystemIds,
       manuallyAddedSystemIds,
       hideUnsubscribed,
+      extraSeedIds,
     );
 
     const filteredSystems = systems.filter(s => visibleSystemIds.has(s.id));
@@ -122,5 +133,6 @@ export function useFilteredMapData(
     myCharSystemIds,
     manuallyAddedSystemIds,
     hideUnsubscribed,
+    extraSeedIds,
   ]);
 }

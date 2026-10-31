@@ -421,8 +421,6 @@ defmodule WandererAppWeb.Router do
     get "/", BlogController, :license
   end
 
-
-
   scope "/swaggerui" do
     pipe_through [:browser, :api_spec]
 
@@ -538,6 +536,17 @@ defmodule WandererAppWeb.Router do
 
     get "/", RedirectController, :redirect_authenticated
     get "/last", MapsController, :last
+
+    # Desktop shell. Routes live above the single-segment "/:slug" catch-all
+    # below, and deliberately use their own layout: the desktop windows must not
+    # render the web sidebar/navigation.
+    live_session :desktop,
+      layout: {WandererAppWeb.Layouts, :desktop},
+      on_mount: [{WandererAppWeb.UserAuth, :ensure_authenticated_desktop}] do
+      live "/desktop", DesktopLive, :index
+      live "/desktop/:slug", MapLive, :desktop
+      live "/desktop/:slug/widget/:widget", MapLive, :widget
+    end
 
     live_session :authenticated,
       on_mount: [

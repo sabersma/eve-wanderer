@@ -1,5 +1,5 @@
 import { LayoutEventBlocker, TooltipPosition, WdImageSize, WdImgButton } from '@/hooks/Mapper/components/ui-kit';
-import { ANOIK_ICON, DOTLAN_ICON, ZKB_ICON } from '@/hooks/Mapper/icons';
+import { ANOIK_ICON, DOTLAN_ICON, JSPACE_ICON, ZKB_ICON } from '@/hooks/Mapper/icons';
 import { useCallback, useRef } from 'react';
 
 import clsx from 'clsx';
@@ -48,6 +48,11 @@ export const FastSystemActions = ({
     );
   }, []);
 
+  const handleOpenJspace = useCallback(
+    () => window.open(`https://jspace.20mm.cn/search/${ref.current.systemName.toLowerCase()}`, '_blank'),
+    [],
+  );
+
   const copySystemNameToClipboard = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(ref.current.systemName);
@@ -73,6 +78,11 @@ export const FastSystemActions = ({
           tooltip={{ position: TooltipPosition.top, content: 'Open Dotlan' }}
           source={DOTLAN_ICON}
           onClick={handleOpenDotlan}
+        />
+        <WdImgButton
+          tooltip={{ position: TooltipPosition.top, content: 'Open J-Space Helper' }}
+          source={JSPACE_ICON}
+          onClick={handleOpenJspace}
         />
       </div>
 

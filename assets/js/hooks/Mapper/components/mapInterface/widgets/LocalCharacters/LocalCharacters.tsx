@@ -9,14 +9,15 @@ import { useLocalCharactersItemTemplate } from './hooks/useLocalCharacters';
 import { LocalCharactersHeader } from './components/LocalCharactersHeader';
 import classes from './LocalCharacters.module.scss';
 import clsx from 'clsx';
+import { useDesktopActiveSystem } from '@/hooks/Mapper/desktop/useDesktopActiveSystem';
 
 export const LocalCharacters = () => {
   const {
-    data: { characters, userCharacters, selectedSystems },
+    data: { characters, userCharacters },
     storedSettings: { settingsLocal, settingsLocalUpdate },
   } = useMapRootState();
 
-  const [systemId] = selectedSystems;
+  const { systemId } = useDesktopActiveSystem();
   const restrictOfflineShowing = useMapGetOption('restrict_offline_showing');
   const isAdminOrManager = useMapCheckPermissions([UserPermission.MANAGE_MAP]);
   const showOffline = useMemo(
@@ -50,8 +51,8 @@ export const LocalCharacters = () => {
   ]);
 
   const isNobodyHere = sorted.length === 0;
-  const isNotSelectedSystem = selectedSystems.length !== 1;
-  const showList = sorted.length > 0 && selectedSystems.length === 1;
+  const isNotSelectedSystem = systemId == null;
+  const showList = sorted.length > 0 && systemId != null;
 
   const itemTemplate = useLocalCharactersItemTemplate(settingsLocal.showShipName);
 

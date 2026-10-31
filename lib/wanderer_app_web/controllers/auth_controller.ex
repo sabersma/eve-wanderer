@@ -1,11 +1,23 @@
 defmodule WandererAppWeb.AuthController do
   use WandererAppWeb, :controller
+  plug :store_desktop_origin
   plug Ueberauth
 
   import Plug.Conn
   import Phoenix.Controller
 
   require Logger
+
+  # Desktop windows start SSO with `?desktop=1`. Ueberauth drops the query
+  # string on its way to EVE, so the session is the only place the callback can
+  # still see where the login was started.
+  defp store_desktop_origin(conn, _opts) do
+    if conn.params["desktop"] in ["1", "true"] do
+      put_session(conn, :desktop, true)
+    else
+      conn
+    end
+  end
 
   def callback(%{assigns: %{ueberauth_auth: auth, current_user: user} = _assigns} = conn, _params) do
     active_tracking_pool = WandererApp.Character.TrackingConfigUtils.get_active_pool!()
@@ -114,9 +126,18 @@ defmodule WandererAppWeb.AuthController do
 
     WandererApp.Character.TrackingConfigUtils.update_active_tracking_pool()
 
-    conn
-    |> put_session(:user_id, user_id)
-    |> redirect(to: "/characters")
+    conn = put_session(conn, :user_id, user_id)
+
+    # Desktop logins return to the desktop map chooser; the flag is cleared so
+    # a later web login in the same browser session is not affected.
+    if get_session(conn, :desktop) == true do
+      conn
+      |> delete_session(:desktop)
+      |> redirect(to: ~p"/desktop")
+    else
+      conn
+      |> redirect(to: "/characters")
+    end
   end
 
   def callback(conn, _params) do

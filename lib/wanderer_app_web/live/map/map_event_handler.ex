@@ -14,6 +14,7 @@ defmodule WandererAppWeb.MapEventHandler do
     MapSystemCommentsEventHandler,
     MapStructuresEventHandler,
     MapKillsEventHandler,
+    MapJspaceEventHandler,
     MapPingsEventHandler
   }
 
@@ -158,6 +159,10 @@ defmodule WandererAppWeb.MapEventHandler do
     "get_systems_kills"
   ]
 
+  @map_jspace_ui_events [
+    "get_jspace_corporations"
+  ]
+
   @map_pings_events [
     :load_map_pings,
     :ping_added,
@@ -272,6 +277,10 @@ defmodule WandererAppWeb.MapEventHandler do
   def handle_ui_event(event, body, socket)
       when event in @map_activity_ui_events,
       do: MapActivityEventHandler.handle_ui_event(event, body, socket)
+
+  def handle_ui_event(event, body, socket)
+      when event in @map_jspace_ui_events,
+      do: MapJspaceEventHandler.handle_ui_event(event, body, socket)
 
   def handle_ui_event(event, body, socket)
       when event in @map_pings_ui_events,

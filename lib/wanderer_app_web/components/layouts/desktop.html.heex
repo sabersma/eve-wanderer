@@ -1,0 +1,11 @@
+<div class="flex h-screen w-full flex-col overflow-hidden bg-stone-950 text-gray-200">
+  <.connection_status>
+    Re-establishing connection...
+  </.connection_status>
+
+  <main class="relative z-0 flex-1 overflow-hidden focus:outline-none">
+    {@inner_content}
+  </main>
+</div>
+
+<.live_component module={WandererAppWeb.Alerts} id="notifications" view_flash={@flash} />

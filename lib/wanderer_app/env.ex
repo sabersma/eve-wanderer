@@ -4,6 +4,25 @@ defmodule WandererApp.Env do
 
   @app :wanderer_app
 
+  # The desktop release version is committed in the Tauri config. Baking it in at
+  # compile time means a server image built from this commit knows which client
+  # version to advertise without any deployment configuration. The Dockerfile
+  # copies this one file into the build stage for exactly this reason.
+  @desktop_version_file Path.expand("../../desktop/src-tauri/tauri.conf.json", __DIR__)
+  @external_resource @desktop_version_file
+  @desktop_build_version (case File.read(@desktop_version_file) do
+                            {:ok, contents} ->
+                              case Regex.run(~r/"version"\s*:\s*"([^"]+)"/, contents) do
+                                [_, version] -> version
+                                _ -> "0.0.0"
+                              end
+
+                            {:error, _} ->
+                              # Not available in this build (e.g. lib copied without desktop/): do not
+                              # advertise a version, so no client is told to update.
+                              "0.0.0"
+                          end)
+
   @decorate cacheable(
               cache: WandererApp.Cache,
               key: "vsn_version"
@@ -102,6 +121,24 @@ defmodule WandererApp.Env do
               key: "restrict_acls_creation"
             )
   def restrict_acls_creation?(), do: get_key(:restrict_acls_creation, false)
+
+  @doc """
+  Latest desktop client version. The shell compares its own version against it
+  and asks the user to fetch a new build from the QQ group when it is older.
+
+  `WANDERER_DESKTOP_LATEST_VERSION` overrides it; otherwise this is the desktop
+  version present in `desktop/src-tauri/tauri.conf.json` when the server was
+  compiled.
+  """
+  def desktop_latest_version do
+    case get_key(:desktop_latest_version) do
+      version when is_binary(version) and version != "" -> version
+      _ -> @desktop_build_version
+    end
+  end
+
+  @doc "Release notes shown in the desktop update prompt."
+  def desktop_update_notes(), do: get_key(:desktop_update_notes, "")
 
   def sse_enabled?() do
     Application.get_env(@app, :sse, [])

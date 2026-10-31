@@ -118,6 +118,17 @@ defmodule WandererAppWeb.MapLive do
   def handle_event("change_subscription_tab", %{"tab" => tab}, socket),
     do: {:noreply, socket |> assign(active_subscription_tab: tab)}
 
+  # Desktop shell heartbeat (map, map-selection and widget windows all report).
+  # Web maps never send it: the hook only runs inside the Tauri shell.
+  @impl true
+  def handle_event("desktop_heartbeat", payload, socket) do
+    if user = socket.assigns[:current_user] do
+      WandererApp.DesktopUsage.record_heartbeat(user.id, payload)
+    end
+
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_event(event, body, socket) do
     WandererAppWeb.MapEventHandler.handle_ui_event(event, body, socket)

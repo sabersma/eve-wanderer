@@ -1,0 +1,152 @@
+<main class="w-full h-full col-span-2 lg:col-span-1 p-4 pl-20 overflow-auto">
+  <div class="page-content">
+    <div class="container-fluid px-[0.625rem]">
+      <!-- Header -->
+      <div class="grid grid-cols-1 pb-6">
+        <div class="md:flex items-center justify-between px-[2px]">
+          <h4 class="text-[18px] font-medium text-gray-800 mb-sm-0 grow dark:text-gray-100 mb-2 md:mb-0">
+            Admin - Desktop Clients
+          </h4>
+          <div class="flex items-center gap-3">
+            <button type="button" class="btn btn-neutral btn-sm" phx-click="refresh">
+              <.icon name="hero-arrow-path-solid" class="w-4 h-4" /> Refresh
+            </button>
+            <.link navigate={~p"/admin"} class="btn btn-ghost btn-sm">
+              <.icon name="hero-arrow-left-solid" class="w-4 h-4" /> Back to Admin
+            </.link>
+          </div>
+        </div>
+      </div>
+
+      <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+        桌面客户端每次启动上报一次心跳；同一安装（install_id）打开多个窗口只计一次。
+        “今日”按 UTC 0 点起算；最近更新：{format_time(@generated_at)} UTC。
+      </p>
+
+      <!-- Active installs / users -->
+      <div class="grid grid-cols-1 gap-6 md:grid-cols-3 pb-6">
+        <div class="card dark:bg-zinc-800 dark:border-zinc-600">
+          <div class="card-body">
+            <span class="text-gray-400 dark:text-gray-400">今日（UTC）</span>
+            <div class="mt-2 flex items-end gap-6">
+              <div>
+                <div class="text-3xl font-semibold text-gray-800 dark:text-gray-100">
+                  {@summary.installs_today}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">活跃安装</div>
+              </div>
+              <div>
+                <div class="text-3xl font-semibold text-gray-800 dark:text-gray-100">
+                  {@summary.users_today}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">活跃用户</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card dark:bg-zinc-800 dark:border-zinc-600">
+          <div class="card-body">
+            <span class="text-gray-400 dark:text-gray-400">近 7 天</span>
+            <div class="mt-2 flex items-end gap-6">
+              <div>
+                <div class="text-3xl font-semibold text-gray-800 dark:text-gray-100">
+                  {@summary.installs_7d}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">活跃安装</div>
+              </div>
+              <div>
+                <div class="text-3xl font-semibold text-gray-800 dark:text-gray-100">
+                  {@summary.users_7d}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">活跃用户</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card dark:bg-zinc-800 dark:border-zinc-600">
+          <div class="card-body">
+            <span class="text-gray-400 dark:text-gray-400">近 30 天</span>
+            <div class="mt-2 flex items-end gap-6">
+              <div>
+                <div class="text-3xl font-semibold text-gray-800 dark:text-gray-100">
+                  {@summary.installs_30d}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">活跃安装</div>
+              </div>
+              <div>
+                <div class="text-3xl font-semibold text-gray-800 dark:text-gray-100">
+                  {@summary.users_30d}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">活跃用户</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Version distribution -->
+      <div class="card dark:bg-zinc-800 dark:border-zinc-600 mb-4">
+        <div class="card-body">
+          <h5 class="font-medium text-gray-800 dark:text-gray-100 mb-2">版本分布（近 30 天）</h5>
+          <div :if={@versions == []} class="text-sm text-gray-500 dark:text-gray-400">
+            还没有客户端上报。
+          </div>
+          <table :if={@versions != []} class="table table-xs">
+            <thead>
+              <tr>
+                <th>版本</th>
+                <th class="text-right">活跃安装</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={{version, count} <- @versions}>
+                <td>{version || "未知"}</td>
+                <td class="text-right">{count}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Recent installs -->
+      <div class="card dark:bg-zinc-800 dark:border-zinc-600">
+        <div class="card-body">
+          <h5 class="font-medium text-gray-800 dark:text-gray-100 mb-2">最近活跃（最多 100 条）</h5>
+          <div :if={@recent == []} class="text-sm text-gray-500 dark:text-gray-400">
+            还没有客户端上报。
+          </div>
+          <div :if={@recent != []} class="overflow-x-auto !max-h-[60vh] !overflow-y-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>用户</th>
+                  <th>安装 ID</th>
+                  <th>版本</th>
+                  <th>平台</th>
+                  <th>首次上报</th>
+                  <th>最近上报</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={row <- @recent}>
+                  <td class="whitespace-nowrap">
+                    {row.user_name || row.user_id || "—"}
+                  </td>
+                  <td class="font-mono whitespace-nowrap" title={row.install_id}>
+                    {short_install_id(row.install_id)}
+                  </td>
+                  <td class="whitespace-nowrap">{row.version || "未知"}</td>
+                  <td class="whitespace-nowrap">{row.platform || "—"}</td>
+                  <td class="whitespace-nowrap">{format_time(row.first_seen_at)}</td>
+                  <td class="whitespace-nowrap">{format_time(row.last_seen_at)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>

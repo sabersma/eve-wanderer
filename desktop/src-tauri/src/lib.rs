@@ -44,6 +44,9 @@ fn desktop_ready(
     // truth, so the slider starts at the same opacity the window was created
     // with (and a stale localStorage value from an older build is corrected).
     serde_json::json!({
+        // The page reports this back in the usage heartbeat and compares it
+        // with the release manifest to decide whether to show the update notice.
+        "version": env!("CARGO_PKG_VERSION"),
         "lastEve": last_eve,
         "widgetOpacity": config::widget_opacity(&app),
         "uiScale": config::ui_scale(&app),

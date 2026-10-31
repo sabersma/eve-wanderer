@@ -169,7 +169,7 @@ WebView2 逐像素透明必须关掉重定向位图，这会丢失系统标题�
 
 | 命令 | 作用 |
 | --- | --- |
-| `desktop_ready` | 页面就绪，返回最后一次 EVE 前台信息、当前透明度、界面缩放和窗口置顶状态 |
+| `desktop_ready` | 页面就绪，返回客户端版本、最后一次 EVE 前台信息、当前透明度、界面缩放和窗口置顶状态 |
 | `get_server_url` | 读取已保存的服务器地址（设置页使用） |
 | `set_server_url` | 校验并保存地址，然后跳转主窗口 |
 | `open_server_settings` | 打开服务器设置窗口 |
@@ -186,6 +186,23 @@ WebView2 逐像素透明必须关掉重定向位图，这会丢失系统标题�
 **创建窗口的命令必须写成 `async fn`**。Windows 下在同步命令或菜单等事件回调里调用 `WebviewWindowBuilder::build()` 会死锁，表现是新窗口（以及整个应用）一直“未响应”。菜单回调创建窗口时要放到独立线程（见 `lib.rs` 的 `on_menu_event`）。
 
 页面里的外链（zkillboard、dotlan、anoik、J-Space Helper 等 `window.open` / `target="_blank"`）由 `windows.rs` 的 `on_new_window` 交给系统默认浏览器打开。wry 在没有处理器时会拒绝所有新窗口请求，删掉它这些按钮就会“点了没反应”。
+
+## 使用上报与更新提示
+
+布局 hook `assets/js/hooks/desktopShell.ts` 挂在 `Layouts.desktop` 根元素上，每个窗口挂载时：
+
+1. 调用 `desktop_ready` 取版本号（`env!("CARGO_PKG_VERSION")`），
+2. `pushEvent("desktop_heartbeat", { install_id, version, platform })` —— 服务端按
+   `install_id` upsert，多开窗口只算一个安装；
+3. 拉取 `/desktop/update.json`，发现新版本时在主窗口提示成员去 Q 群共享下载。
+
+网页版没有 Tauri invoke 桥，hook 直接跳过。服务端默认把**编译时从
+`src-tauri/tauri.conf.json` 读到的版本**作为最新版本（Dockerfile 会把该文件拷进构建阶段，
+`WandererApp.Env` 用 `@external_resource` 编进 release）；需要时用
+`WANDERER_DESKTOP_LATEST_VERSION` 覆盖，`WANDERER_DESKTOP_UPDATE_NOTES` 作为更新说明。
+管理员统计页为 `/admin/desktop`；细节见
+[`../docs/desktop-client.md`](../docs/desktop-client.md) 的 7.7 节和
+[`../docs/desktop-release-and-usage.md`](../docs/desktop-release-and-usage.md) 的发版手册。
 
 ## EVE 跟随
 

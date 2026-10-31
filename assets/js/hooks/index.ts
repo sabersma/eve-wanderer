@@ -8,6 +8,7 @@ import CopyToClipboard from './copyToClipboard';
 import DownloadJson from './downloadJson';
 import ImageZoom from './imageZoom';
 import NewVersionUpdate from './newVersionUpdate';
+import DesktopShell from './desktopShell';
 import MapAction from './maps/mapAction';
 import ShowCharactersAddAlert from './showCharactersAddAlert';
 import WysiwygEditor from './wysiwygEditor';
@@ -24,6 +25,7 @@ export default {
   CopyToClipboard,
   ImageZoom,
   NewVersionUpdate,
+  DesktopShell,
   ShowCharactersAddAlert,
   WysiwygEditor,
 };

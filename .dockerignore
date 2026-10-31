@@ -40,3 +40,10 @@ erl_crash.dump
 # Static artifacts - These should be fetched and built inside the Docker image
 /priv/static/assets/
 /priv/static/cache_manifest.json
+
+# Desktop client build artifacts. The Tauri config is copied into the build
+# stage on purpose (see Dockerfile), everything else would only bloat the
+# build context.
+/desktop/node_modules/
+/desktop/src-tauri/target/
+/desktop/dist/

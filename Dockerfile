@@ -25,6 +25,10 @@ COPY priv priv
 COPY lib lib
 COPY assets assets
 
+# Only this file from the desktop project is needed at build time: it is the
+# source of the desktop version advertised by /desktop/update.json.
+COPY desktop/src-tauri/tauri.conf.json ./desktop/src-tauri/tauri.conf.json
+
 RUN mix assets.deploy
 RUN mix compile
 

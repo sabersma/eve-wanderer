@@ -164,6 +164,12 @@ config :wanderer_app,
   corp_id: System.get_env("WANDERER_CORP_ID", "-1") |> String.to_integer(),
   corp_wallet: System.get_env("WANDERER_CORP_WALLET", ""),
   corp_wallet_eve_id: System.get_env("WANDERER_CORP_WALLET_EVE_ID", "-1"),
+  # Empty means "use the desktop version compiled into this release"
+  # (read from desktop/src-tauri/tauri.conf.json at build time).
+  desktop_latest_version:
+    config_dir |> get_var_from_path_or_env("WANDERER_DESKTOP_LATEST_VERSION", ""),
+  desktop_update_notes:
+    config_dir |> get_var_from_path_or_env("WANDERER_DESKTOP_UPDATE_NOTES", ""),
   public_api_disabled: public_api_disabled,
   active_tracking_pool: System.get_env("WANDERER_ACTIVE_TRACKING_POOL", "default"),
   tracking_pool_max_size:

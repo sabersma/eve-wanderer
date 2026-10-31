@@ -45,7 +45,8 @@
 ### 2. 服务端准备（每次发版前）
 
 1. `/desktop` 系列路由已部署：
-   `/desktop`、`/desktop/:slug`、`/desktop/:slug/widget/:widget`。
+   `/desktop`、`/desktop/:slug`、`/desktop/:slug/widget/:widget`，
+   以及公开的版本清单 `/desktop/update.json`。
 2. 前端资源已重建，且部署产物包含桌面相关改动：
 
    ```bash
@@ -55,11 +56,14 @@
 
    本仓库请用 `npm`，不要用 `yarn`。
 
-3. 站点 HTTPS 证书有效。客户端对外只接受 `https://`，只有本机开发允许
+3. 数据库迁移：Docker 镜像启动时会自动执行（`rel/docker-entrypoint.sh` → `bin/migrate.sh`），
+   Fly.io 的 `release_command` 也会执行；只有直接以 `mix phx.server` 部署时才需手动
+   `mix ecto.migrate`。
+4. 站点 HTTPS 证书有效。客户端对外只接受 `https://`，只有本机开发允许
    `http://localhost` / `http://127.0.0.1`。
-4. EVE SSO 回调配置正确：桌面未登录时会跳到 `/auth/eve?desktop=1`，回调成功后回到
+5. EVE SSO 回调配置正确：桌面未登录时会跳到 `/auth/eve?desktop=1`，回调成功后回到
    `/desktop`；Web 登录仍回 `/characters`。
-5. 用浏览器实际登录一次，确认能打开 `/desktop`、能看到地图列表。
+6. 用浏览器实际登录一次，确认能打开 `/desktop`、能看到地图列表。
 
 ### 3. 打包
 
@@ -147,12 +151,76 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
   OV/EV 代码签名证书或 Azure Trusted Signing，在 `bundle.windows` 中配置证书或
   `signCommand` 后重新打包。
 - 自动更新（`tauri-plugin-updater`）尚未接入，每次发版都需要重新分发安装包。
+  客户端启动时会检查服务端的版本清单，发现新版本后提示成员去 Q 群共享下载，
+  详见下一节。
 
-### 6. 发版检查清单
+### 6. 更新提示与使用统计
+
+两件事都由服务端配置，客户端外壳不需要为此重新打包（客户端版本号本身除外）。
+
+#### 版本清单（更新提示）
+
+客户端启动时请求公开接口 `GET /desktop/update.json`，返回：
+
+```json
+{ "latest": "0.1.1", "notes": "本次修复……" }
+```
+
+服务端通过环境变量配置：
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `WANDERER_DESKTOP_LATEST_VERSION` | 编译时的客户端版本 | 最新客户端版本；只有比客户端自身版本新时才提示 |
+| `WANDERER_DESKTOP_UPDATE_NOTES` | 空 | 可选的更新说明，显示在提示框里 |
+
+默认值不是写死的：编译服务端时，`WandererApp.Env` 会读取仓库里的
+`desktop/src-tauri/tauri.conf.json`（Dockerfile 会把该文件拷进构建阶段），把版本号
+编进 release。因此**升完客户端版本号、用该提交重新构建并部署服务端后，更新提示自动生效**，
+不需要额外在服务器上配置版本；只有想让服务端提示一个与仓库不同的版本时（例如回滚、
+灰度发布），才需要设置 `WANDERER_DESKTOP_LATEST_VERSION`。
+
+行为：
+
+- 只在主窗口（地图选择 / 地图）弹出，独立小窗口不打扰；提示内容是
+  “前往 Q 群共享下载新版本安装包，安装后重新启动客户端”。
+- 「知道了」只关闭本次；「本版本不再提醒」写入本机 `localStorage`，同一版本不再弹出。
+- 发版流程：先上传新安装包到群共享，再部署含新版本号的服务端；改反顺序会让成员
+  看到提示却下载不到包。
+
+#### 使用统计
+
+客户端每个窗口挂载时向 LiveView 发送一次 `desktop_heartbeat`，服务端按
+`install_id`（客户端 `localStorage` 中随机生成的 UUID）做 upsert，所以同时开多个
+小窗口只算一个安装。数据表 `desktop_client_v1` 由迁移
+`priv/repo/migrations/20261101120000_add_desktop_client_usage.exs` 创建。
+
+部署时不需要手动执行迁移：Docker 镜像的入口脚本 `rel/docker-entrypoint.sh` 在
+`run` 启动前会调用 `/app/bin/migrate.sh`（`WandererApp.Release.interweave_migrate`），
+Fly.io 的 `release_command` 也是同一个脚本。只有不用 Docker/release 直接跑 `mix phx.server`
+的环境才需要手动 `mix ecto.migrate`。
+
+管理员页面 `/admin/desktop`（Admin → Desktop Clients → Client Usage）展示：
+
+- 今日（UTC）/ 近 7 天 / 近 30 天的活跃安装数与活跃用户数（按 `user_id` 去重）；
+- 近 30 天的版本分布；
+- 最近 100 条上报，含用户、安装 ID、版本、平台、首次/最近上报时间。
+
+注意：
+
+- 心跳只在 Tauri 外壳中发送，网页版地图不会上报；客户端未登录时不会发送（没有用户）。
+- `install_id` 存在每个窗口共用的 WebView `localStorage` 中，清除客户端本地数据会
+  被视为一个新安装。
+- 该表只增不删，长期运行可按需定期清理很久未上报的行。
+
+### 7. 发版检查清单
 
 构建与分发：
 
 - [ ] 服务端已部署 `/desktop` 路由与最新 `priv/static/assets`
+- [ ] 服务端镜像包含最新 `desktop/src-tauri/tauri.conf.json`（重建镜像后自动生效）
+- [ ] 不需要手动迁移：容器启动时会自动执行；确认日志里没有迁移失败
+- [ ] 新安装包已上传到 Q 群共享（顺序在部署新版本服务端之前）
+- [ ] 旧版本客户端启动后能看到更新提示，`/admin/desktop` 能看到上报
 - [ ] 服务端 HTTPS 证书有效，浏览器可正常登录并选图
 - [ ] 构建时未设置 `WANDERER_SERVER_URL`
 - [ ] `tauri.conf.json` / `package.json` 版本号已更新
@@ -179,7 +247,7 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
 
 ## 第二部分：使用（成员）
 
-### 7. 安装
+### 8. 安装
 
 1. 取得维护者发布的 `Wanderer_<版本>_x64-setup.exe`。
 2. 双击安装。若出现 SmartScreen 提示，点「更多信息 → 仍要运行」。
@@ -187,7 +255,7 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
 
 系统要求：Windows 10/11 x64。其他平台不受支持。
 
-### 8. 首次启动：填写服务器地址
+### 9. 首次启动：填写服务器地址
 
 第一次启动会打开「设置 Wanderer 服务器」窗口：
 
@@ -212,20 +280,20 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
 
 不会上传，也不影响其他成员。
 
-### 9. 登录
+### 10. 登录
 
 - 未登录时不会经过 Web 欢迎页，而是直接进入 EVE SSO；登录成功后回到 `/desktop`。
 - 所有窗口共用同一 WebView2 会话，登录一次即可，独立小窗口不再要求登录。
 - 如果登录后停在空白页或报错，先用浏览器确认同一地址能正常登录，再联系维护者。
 
-### 10. 选图与进入地图
+### 11. 选图与进入地图
 
 - `/desktop` 会列出你可以访问的地图，选择后进入桌面精简地图。
 - 桌面端固定使用订阅视图；没有订阅时会有提示，但跟随星系仍可显示。
 - 权限判断与 Web 端完全一致，客户端没有任何绕过或放宽；ACL、审计等复杂操作仍只在 Web 端提供。
 - 订阅模式下星系的新增/删除仍与 Web 端保持一致，桌面端不额外放开这些操作。
 
-### 11. 主地图窗口
+### 12. 主地图窗口
 
 主地图右上角的悬浮工具条是桌面端唯一的设置入口：
 
@@ -241,7 +309,7 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
 缩放快捷键（所有桌面窗口通用）：`Ctrl+=` 放大、`Ctrl+-` 缩小、`Ctrl+0` 重置。
 主窗口和所有小窗口共用同一个缩放比例，修改后立即同步。
 
-### 12. 独立小窗口
+### 13. 独立小窗口
 
 窗口与首次打开的默认尺寸：
 
@@ -272,7 +340,7 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
 
 > 置顶和透明度只在 Windows 上生效。WSL/Linux 下按钮会给出提示，但窗口管理器不会响应。
 
-### 13. EVE 跟随
+### 14. EVE 跟随
 
 - 激活 EVE 客户端（进程 `exefile.exe`）后，客户端读取窗口标题中的角色名，与地图中已加载的
   角色匹配，再通过服务端角色位置切到对应星系。
@@ -282,7 +350,7 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
 - 如果标题里没有可匹配的角色名，会显示「未匹配角色：<标题>」，此时请在主图手动选星系。
 - EVE 以独占全屏运行时，浮窗可能被挡住；建议使用无边框窗口模式。
 
-### 14. 配置、更新与卸载
+### 15. 配置、更新与卸载
 
 配置文件：
 

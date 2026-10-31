@@ -17,4 +17,16 @@ defmodule WandererAppWeb.DesktopLive do
   def mount(_params, _session, socket) do
     {:ok, assign(socket, maps: [], page_title: "Wanderer Desktop")}
   end
+
+  # Sent by the desktop shell hook (assets/js/hooks/desktopShell.ts) once per
+  # window mount. Widget windows are upserted by install id, so they add no
+  # extra installs.
+  @impl true
+  def handle_event("desktop_heartbeat", payload, socket) do
+    if user = socket.assigns[:current_user] do
+      WandererApp.DesktopUsage.record_heartbeat(user.id, payload)
+    end
+
+    {:noreply, socket}
+  end
 end

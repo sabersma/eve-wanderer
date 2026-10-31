@@ -195,7 +195,7 @@ eve-wanderer/
 2. 通过 `GetWindowThreadProcessId` + `QueryFullProcessImageNameW` 判断进程名是否为 `exefile.exe`。
 3. 通过 `GetWindowTextW` 读取窗口标题。
 4. Rust 把 `{ title, process, hwnd, at }` 广播给所有桌面窗口。
-5. 页面用地图 `characters` 中的角色名匹配标题：优先本人角色，取最长匹配，忽略大小写。
+5. 页面用地图 `characters` 中的角色名匹配标题：按完整名字匹配（两侧不能是字母/数字/下划线），取最长匹配，忽略大小写；本人角色只用于同长度时的排序。
 6. 用匹配角色的 `location.solar_system_id` 解析所在星系。
 
 ### 6.2 “最后激活”语义
@@ -344,6 +344,26 @@ window.__wandererDesktop.onDesktopState({
 已知限制：EVE 以独占全屏运行时透明窗口同样可能被挡住（建议游戏用无边框窗口模式）；
 `WS_EX_LAYERED` 会让窗口走重定向位图合成，个别驱动/远程桌面下可能有性能开销，需在
 Windows 实机确认；透明度只在 Windows 生效（WSL/Linux 开发时不改变窗口，滑杆仅更新配置）。
+
+### 7.7 使用上报与更新提示
+
+由布局 hook `assets/js/hooks/desktopShell.ts`（挂在 `Layouts.desktop` 的根元素上）负责，
+不经过 Mapper，因此地图选择页、地图页和每个 widget 窗口都会执行：
+
+- **使用上报**：`mounted` 时调用 `desktop_ready` 取 `version`（Rust 侧返回
+  `env!("CARGO_PKG_VERSION")`），然后 `pushEvent("desktop_heartbeat", { install_id, version, platform })`。
+  `install_id` 保存在 WebView `localStorage`（`wanderer:desktop:install-id`，`crypto.randomUUID()`
+  或 16 字节随机数兜底）。服务端 `WandererApp.DesktopUsage.record_heartbeat/2` 按
+  `install_id` upsert 到 `desktop_client_v1`，所以一个客户端开多个窗口只算一个安装。
+  `DesktopLive` 和 `MapLive` 都实现了该事件；网页版（没有 Tauri invoke 桥）直接跳过。
+- **更新提示**：读取布局上的 `data-update-url`（`/desktop/update.json`），比较 `latest` 与
+  客户端版本；较新时在主窗口（路径不含 `/widget/`）显示提示框，内容为前往 Q 群共享下载
+  新版本安装包。`WANDERER_DESKTOP_UPDATE_NOTES` 作为补充说明；未设置
+  `WANDERER_DESKTOP_LATEST_VERSION` 时，服务端使用编译时从
+  `desktop/src-tauri/tauri.conf.json` 读到的版本（`WandererApp.Env` 的模块属性，
+  Dockerfile 会把该文件拷进构建阶段）。「本版本不再提醒」写入 `localStorage`
+  （`wanderer:desktop:update-skip`）。未接入 `tauri-plugin-updater`：不做静默下载/安装，
+  也不需要签名密钥。
 
 ## 8. 前端实现要点
 

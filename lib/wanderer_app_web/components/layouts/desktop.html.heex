@@ -1,4 +1,9 @@
-<div class="flex h-screen w-full flex-col overflow-hidden bg-stone-950 text-gray-200">
+<div
+  id="desktop-shell"
+  phx-hook="DesktopShell"
+  data-update-url={~p"/desktop/update.json"}
+  class="flex h-screen w-full flex-col overflow-hidden bg-stone-950 text-gray-200"
+>
   <.connection_status>
     Re-establishing connection...
   </.connection_status>

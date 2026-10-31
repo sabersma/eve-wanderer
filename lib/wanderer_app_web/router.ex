@@ -518,6 +518,7 @@ defmodule WandererAppWeb.Router do
       live("/maps/:id/edit", AdminMapsLive, :edit)
       live("/maps/:id/acls", AdminMapsLive, :view_acls)
       live("/characters", AdminCharactersLive, :index)
+      live("/desktop", AdminDesktopLive, :index)
     end
 
     error_tracker_dashboard("/errors",
@@ -536,6 +537,10 @@ defmodule WandererAppWeb.Router do
 
     get "/", RedirectController, :redirect_authenticated
     get "/last", MapsController, :last
+
+    # Public release manifest for the desktop shell. Declared before the
+    # "/desktop/:slug" live route so it is not swallowed as a map slug.
+    get "/desktop/update.json", DesktopUpdateController, :show
 
     # Desktop shell. Routes live above the single-segment "/:slug" catch-all
     # below, and deliberately use their own layout: the desktop windows must not

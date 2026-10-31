@@ -12,8 +12,54 @@ import { useLocalBookmarks } from './hooks/useLocalBookmarks';
 import { PasteBox } from './components/PasteBox';
 import { SignatureCompareList } from './components/SignatureCompareList';
 import { BookmarkCompareList } from './components/BookmarkCompareList';
+import { BookmarkStatus, ComparisonCounts, SignatureStatus } from './types';
 
 type Tab = 'signatures' | 'bookmarks';
+
+type StatusFilter = { tab: 'signatures'; status: SignatureStatus } | { tab: 'bookmarks'; status: BookmarkStatus };
+
+const SIGNATURE_FILTER_COUNTS: Record<SignatureStatus, keyof ComparisonCounts> = {
+  matched: 'signaturesMatched',
+  unmatched: 'signaturesUnmatched',
+  ambiguous: 'signaturesAmbiguous',
+};
+
+const BOOKMARK_FILTER_COUNTS: Record<BookmarkStatus, keyof ComparisonCounts> = {
+  matched: 'bookmarksMatched',
+  stale: 'bookmarksStale',
+  suspected: 'bookmarksSuspected',
+  ambiguous: 'bookmarksAmbiguous',
+  custom: 'bookmarksCustom',
+};
+
+const countForFilter = (filter: StatusFilter, counts: ComparisonCounts) =>
+  filter.tab === 'signatures'
+    ? counts[SIGNATURE_FILTER_COUNTS[filter.status]]
+    : counts[BOOKMARK_FILTER_COUNTS[filter.status]];
+
+const FilterChip = ({
+  active,
+  className,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  className: string;
+  onClick: () => void;
+  children: ReactNode;
+}) => (
+  <button
+    type="button"
+    aria-pressed={active}
+    title={active ? '取消筛选' : '只看这一类'}
+    className={`shrink-0 rounded px-0.5 transition-colors hover:bg-stone-800 ${className} ${
+      active ? 'bg-stone-700/70 ring-1 ring-stone-500/60' : ''
+    }`}
+    onClick={onClick}
+  >
+    {children}
+  </button>
+);
 
 const Hint = ({ children }: { children: ReactNode }) => (
   <div className="flex h-full w-full items-center justify-center px-3">
@@ -44,6 +90,7 @@ export const LocalBookmarks = () => {
   const [tab, setTab] = useState<Tab>('signatures');
   const [onlyDiff, setOnlyDiff] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter | null>(null);
 
   // A new system must show that system's own paste, not the previous editor.
   useEffect(() => {
@@ -64,6 +111,27 @@ export const LocalBookmarks = () => {
   }, [clear]);
 
   const { counts } = comparison;
+
+  const isSignatureFilter = (status: SignatureStatus) =>
+    statusFilter !== null && statusFilter.tab === 'signatures' && statusFilter.status === status;
+
+  const isBookmarkFilter = (status: BookmarkStatus) =>
+    statusFilter !== null && statusFilter.tab === 'bookmarks' && statusFilter.status === status;
+
+  const toggleFilter = useCallback((next: StatusFilter) => {
+    setStatusFilter(current => (current && current.tab === next.tab && current.status === next.status ? null : next));
+    setTab(next.tab);
+  }, []);
+
+  // Status chips with a zero count are not rendered (e.g. after a new paste or
+  // a signature refresh); drop the filter with them so the list cannot stay
+  // filtered by an invisible status.
+  const activeFilterCount = statusFilter ? countForFilter(statusFilter, counts) : null;
+  useEffect(() => {
+    if (statusFilter && activeFilterCount === 0) {
+      setStatusFilter(null);
+    }
+  }, [activeFilterCount, statusFilter]);
 
   const body = (() => {
     if (!systemId) {
@@ -109,15 +177,65 @@ export const LocalBookmarks = () => {
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b border-stone-800 px-2 py-1 text-[10px] text-stone-400">
           <span>信号 {counts.signatures}</span>
-          <span className="text-emerald-400">已标记 {counts.signaturesMatched}</span>
-          <span className="text-amber-300">未标记 {counts.signaturesUnmatched}</span>
-          {counts.signaturesAmbiguous > 0 && <span className="text-sky-300">疑似 {counts.signaturesAmbiguous}</span>}
-          {counts.bookmarksStale > 0 && <span className="text-red-400">过期 {counts.bookmarksStale}</span>}
-          {counts.bookmarksSuspected > 0 && (
-            <span className="text-orange-300">疑似过期 {counts.bookmarksSuspected}</span>
+          <FilterChip
+            active={isSignatureFilter('matched')}
+            className="text-emerald-400"
+            onClick={() => toggleFilter({ tab: 'signatures', status: 'matched' })}
+          >
+            已标记 {counts.signaturesMatched}
+          </FilterChip>
+          <FilterChip
+            active={isSignatureFilter('unmatched')}
+            className="text-amber-300"
+            onClick={() => toggleFilter({ tab: 'signatures', status: 'unmatched' })}
+          >
+            未标记 {counts.signaturesUnmatched}
+          </FilterChip>
+          {counts.signaturesAmbiguous > 0 && (
+            <FilterChip
+              active={isSignatureFilter('ambiguous')}
+              className="text-sky-300"
+              onClick={() => toggleFilter({ tab: 'signatures', status: 'ambiguous' })}
+            >
+              疑似 {counts.signaturesAmbiguous}
+            </FilterChip>
           )}
-          {counts.bookmarksAmbiguous > 0 && <span className="text-sky-300">歧义 {counts.bookmarksAmbiguous}</span>}
-          {counts.bookmarksCustom > 0 && <span className="text-stone-500">自定义 {counts.bookmarksCustom}</span>}
+          {counts.bookmarksStale > 0 && (
+            <FilterChip
+              active={isBookmarkFilter('stale')}
+              className="text-red-400"
+              onClick={() => toggleFilter({ tab: 'bookmarks', status: 'stale' })}
+            >
+              过期 {counts.bookmarksStale}
+            </FilterChip>
+          )}
+          {counts.bookmarksSuspected > 0 && (
+            <FilterChip
+              active={isBookmarkFilter('suspected')}
+              className="text-orange-300"
+              onClick={() => toggleFilter({ tab: 'bookmarks', status: 'suspected' })}
+            >
+              疑似过期 {counts.bookmarksSuspected}
+            </FilterChip>
+          )}
+          {counts.bookmarksAmbiguous > 0 && (
+            <FilterChip
+              active={isBookmarkFilter('ambiguous')}
+              className="text-sky-300"
+              onClick={() => toggleFilter({ tab: 'bookmarks', status: 'ambiguous' })}
+            >
+              歧义 {counts.bookmarksAmbiguous}
+            </FilterChip>
+          )}
+          {counts.bookmarksCustom > 0 && (
+            <FilterChip
+              active={isBookmarkFilter('custom')}
+              className="text-stone-500"
+              onClick={() => toggleFilter({ tab: 'bookmarks', status: 'custom' })}
+            >
+              自定义 {counts.bookmarksCustom}
+            </FilterChip>
+          )}
 
           <button type="button" className="ml-auto text-stone-500 hover:text-red-300" onClick={handleClear}>
             清空
@@ -128,14 +246,20 @@ export const LocalBookmarks = () => {
           <button
             type="button"
             className={tab === 'signatures' ? 'text-white' : 'text-stone-500 hover:text-stone-200'}
-            onClick={() => setTab('signatures')}
+            onClick={() => {
+              setTab('signatures');
+              setStatusFilter(null);
+            }}
           >
             信号 {counts.signatures}
           </button>
           <button
             type="button"
             className={tab === 'bookmarks' ? 'text-white' : 'text-stone-500 hover:text-stone-200'}
-            onClick={() => setTab('bookmarks')}
+            onClick={() => {
+              setTab('bookmarks');
+              setStatusFilter(null);
+            }}
           >
             位标 {counts.bookmarks}
           </button>
@@ -160,9 +284,18 @@ export const LocalBookmarks = () => {
         </div>
 
         {tab === 'signatures' ? (
-          <SignatureCompareList items={comparison.signatures} onlyDiff={onlyDiff} isLoading={isLoading} />
+          <SignatureCompareList
+            items={comparison.signatures}
+            onlyDiff={onlyDiff}
+            isLoading={isLoading}
+            statusFilter={statusFilter?.tab === 'signatures' ? statusFilter.status : null}
+          />
         ) : (
-          <BookmarkCompareList items={comparison.bookmarks} onlyDiff={onlyDiff} />
+          <BookmarkCompareList
+            items={comparison.bookmarks}
+            onlyDiff={onlyDiff}
+            statusFilter={statusFilter?.tab === 'bookmarks' ? statusFilter.status : null}
+          />
         )}
       </div>
     );

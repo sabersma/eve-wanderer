@@ -1,4 +1,4 @@
-import { BookmarkComparison, BookmarkMatchKind } from '../types';
+import { BookmarkComparison, BookmarkMatchKind, BookmarkStatus } from '../types';
 import { BookmarkStatusBadge } from './StatusBadge';
 
 const ROW_TONE: Record<BookmarkComparison['status'], string> = {
@@ -26,13 +26,28 @@ const matchedLabel = ({ matched }: BookmarkComparison) => {
 const candidatesLabel = ({ candidates }: BookmarkComparison) =>
   (candidates ?? []).map(candidate => candidate.eve_id).join(' / ');
 
-export const BookmarkCompareList = ({ items, onlyDiff }: { items: BookmarkComparison[]; onlyDiff: boolean }) => {
-  const visible = onlyDiff ? items.filter(item => item.status !== 'matched' && item.status !== 'custom') : items;
+export const BookmarkCompareList = ({
+  items,
+  onlyDiff,
+  statusFilter,
+}: {
+  items: BookmarkComparison[];
+  onlyDiff: boolean;
+  statusFilter?: BookmarkStatus | null;
+}) => {
+  const visible = items.filter(item => {
+    if (statusFilter && item.status !== statusFilter) {
+      return false;
+    }
+    return !onlyDiff || (item.status !== 'matched' && item.status !== 'custom');
+  });
 
   if (visible.length === 0) {
     return (
       <div className="flex h-full w-full items-center justify-center px-2">
-        <span className="select-none text-center text-sm text-stone-400/80">{onlyDiff ? '没有差异' : '没有位标'}</span>
+        <span className="select-none text-center text-sm text-stone-400/80">
+          {statusFilter ? '没有匹配项' : onlyDiff ? '没有差异' : '没有位标'}
+        </span>
       </div>
     );
   }

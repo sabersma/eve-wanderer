@@ -1,4 +1,4 @@
-import { SignatureComparison } from '../types';
+import { SignatureComparison, SignatureStatus } from '../types';
 import { SignatureStatusBadge } from './StatusBadge';
 
 const ROW_TONE: Record<SignatureComparison['status'], string> = {
@@ -18,18 +18,25 @@ export const SignatureCompareList = ({
   items,
   onlyDiff,
   isLoading,
+  statusFilter,
 }: {
   items: SignatureComparison[];
   onlyDiff: boolean;
   isLoading?: boolean;
+  statusFilter?: SignatureStatus | null;
 }) => {
-  const visible = onlyDiff ? items.filter(item => item.status !== 'matched') : items;
+  const visible = items.filter(item => {
+    if (statusFilter && item.status !== statusFilter) {
+      return false;
+    }
+    return !onlyDiff || item.status !== 'matched';
+  });
 
   if (visible.length === 0) {
     return (
       <div className="flex h-full w-full items-center justify-center px-2">
         <span className="select-none text-center text-sm text-stone-400/80">
-          {isLoading ? 'Loading signatures...' : onlyDiff ? '没有差异' : '没有信号'}
+          {isLoading ? 'Loading signatures...' : statusFilter ? '没有匹配项' : onlyDiff ? '没有差异' : '没有信号'}
         </span>
       </div>
     );

@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getSystemStaticInfo, useLoadSystemStatic } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic';
-import { closeSelf, openMain, setAlwaysOnTop, setFollowEnabled, setWindowTitle } from './bridge';
+import {
+  MAX_WIDGET_OPACITY,
+  MIN_WIDGET_OPACITY,
+  closeSelf,
+  openMain,
+  setAlwaysOnTop,
+  setFollowEnabled,
+  setWidgetOpacity,
+  setWindowTitle,
+} from './bridge';
 import { useDesktopBridgeState } from './useDesktopBridge';
 import { useDesktopActiveSystem } from './useDesktopActiveSystem';
 import { DesktopWidget } from './types';
@@ -25,9 +34,8 @@ const ALWAYS_ON_TOP_UNSUPPORTED =
   typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
 
 export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
-  const { followEnabled } = useDesktopBridgeState();
+  const { followEnabled, widgetOpacity, alwaysOnTop } = useDesktopBridgeState();
   const { lastEve, matchedCharacter, systemId } = useDesktopActiveSystem();
-  const [alwaysOnTop, setAlwaysOnTopState] = useState(false);
   const [topNotice, setTopNotice] = useState<string | null>(null);
 
   // A detached window has no map, so nothing else preloads static system data.
@@ -37,10 +45,6 @@ export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
   useLoadSystemStatic({ systems: systemsToLoad });
 
   const systemName = systemId ? (getSystemStaticInfo(Number(systemId))?.solar_system_name ?? null) : null;
-
-  useEffect(() => {
-    void setAlwaysOnTop(alwaysOnTop);
-  }, [alwaysOnTop, setAlwaysOnTop]);
 
   useEffect(() => {
     if (!alwaysOnTop || !ALWAYS_ON_TOP_UNSUPPORTED) {
@@ -59,7 +63,12 @@ export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
     void setWindowTitle(`${WIDGET_LABELS[widget]}${character}${target} · Wanderer`);
   }, [matchedCharacter?.name, systemName, widget]);
 
-  const toggleAlwaysOnTop = useCallback(() => setAlwaysOnTopState(value => !value), []);
+  // The pin is cached per widget id in config.json, and the window is created
+  // with it already applied; `desktop_ready` reports the native state so this
+  // toggle starts in the right position.
+  const toggleAlwaysOnTop = useCallback(() => {
+    void setAlwaysOnTop(!alwaysOnTop);
+  }, [alwaysOnTop]);
 
   const status = (() => {
     if (!followEnabled) {
@@ -80,8 +89,19 @@ export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
     return `${matchedCharacter.name} · ${systemName ?? systemId}`;
   })();
 
+  // The window keeps its native title bar; dragging by the content bar is still
+  // a convenience. `deep` makes every non-interactive part draggable; buttons,
+  // labels and inputs keep their normal clicks (Tauri's drag.js checks for
+  // that). Zoom is controlled from the main map bar (or Ctrl+= / Ctrl+- /
+  // Ctrl+0 here); transparency stays adjustable in place because it was
+  // explicitly requested for the detached windows.
+  const transparency = Math.round((MAX_WIDGET_OPACITY - widgetOpacity) * 100);
+
   return (
-    <div className="flex h-8 shrink-0 items-center gap-2 border-b border-stone-800 bg-stone-900/90 px-2 text-xs text-stone-300">
+    <div
+      data-tauri-drag-region="deep"
+      className="flex h-8 shrink-0 items-center gap-2 border-b border-stone-800 bg-stone-900/90 px-2 text-xs text-stone-300"
+    >
       <span className="shrink-0 font-medium text-stone-100">{WIDGET_LABELS[widget]}</span>
       <span className="min-w-0 flex-1 truncate" title={topNotice ?? status}>
         {topNotice ? <span className="text-amber-300">{topNotice}</span> : followEnabled ? status : '跟随已关闭'}
@@ -107,6 +127,22 @@ export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
       >
         置顶
       </button>
+
+      <label
+        className="flex shrink-0 cursor-pointer items-center gap-1 select-none"
+        title={`窗口透明度 ${transparency}%（0%–70%，整个窗口含标题栏一起变化，仅 Windows 生效）`}
+      >
+        <span>透明</span>
+        <input
+          type="range"
+          className="h-1 w-12 cursor-pointer accent-stone-400"
+          min={0}
+          max={Math.round((MAX_WIDGET_OPACITY - MIN_WIDGET_OPACITY) * 100)}
+          step={5}
+          value={transparency}
+          onChange={event => setWidgetOpacity(MAX_WIDGET_OPACITY - Number(event.target.value) / 100)}
+        />
+      </label>
 
       <div className="flex shrink-0 items-center gap-1">
         <button type="button" className="hover:text-white" onClick={() => void openMain()}>

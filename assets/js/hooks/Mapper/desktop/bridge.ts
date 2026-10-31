@@ -1,6 +1,10 @@
 import { DesktopBridgeApi, DesktopBridgeState, DesktopInfo, DesktopWidget, EveForeground } from './types';
 
 const FOLLOW_STORAGE_KEY = 'wanderer:desktop:follow';
+const WIDGET_OPACITY_STORAGE_KEY = 'wanderer:desktop:widget-opacity';
+
+export const MIN_WIDGET_OPACITY = 0.3;
+export const MAX_WIDGET_OPACITY = 1;
 
 const listeners = new Set<() => void>();
 
@@ -13,6 +17,9 @@ let state: DesktopBridgeState = {
   },
   lastEve: null,
   followEnabled: true,
+  widgetOpacity: MAX_WIDGET_OPACITY,
+  uiScale: 1,
+  alwaysOnTop: false,
 };
 
 function emit() {
@@ -41,13 +48,42 @@ function writeFollowEnabled(value: boolean) {
   }
 }
 
-// Keep the follow toggle in sync across the main map and every widget window
-// (they share one WebView2 profile/origin). `storage` does not fire in the
-// window that wrote the value, hence the local setState in setFollowEnabled.
+function clampWidgetOpacity(value: number): number {
+  if (!Number.isFinite(value)) {
+    return MAX_WIDGET_OPACITY;
+  }
+  // Round to the slider's 1% steps so config.json does not collect values
+  // like 0.35000000000000003.
+  return Math.round(Math.min(MAX_WIDGET_OPACITY, Math.max(MIN_WIDGET_OPACITY, value)) * 100) / 100;
+}
+
+function readWidgetOpacity(): number {
+  try {
+    const value = localStorage.getItem(WIDGET_OPACITY_STORAGE_KEY);
+    return value == null ? MAX_WIDGET_OPACITY : clampWidgetOpacity(Number(value));
+  } catch {
+    return MAX_WIDGET_OPACITY;
+  }
+}
+
+function writeWidgetOpacity(value: number) {
+  try {
+    localStorage.setItem(WIDGET_OPACITY_STORAGE_KEY, String(value));
+  } catch {
+    // localStorage can be unavailable in hardened/private profiles.
+  }
+}
+
+// Keep the follow toggle and widget opacity in sync across the main map and
+// every widget window (they share one WebView2 profile/origin). `storage` does
+// not fire in the window that wrote the value, hence the local setState in the
+// setters.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', event => {
     if (event.key === FOLLOW_STORAGE_KEY) {
       setState({ followEnabled: readFollowEnabled() });
+    } else if (event.key === WIDGET_OPACITY_STORAGE_KEY) {
+      setState({ widgetOpacity: readWidgetOpacity() });
     }
   });
 }
@@ -117,6 +153,37 @@ export function setFollowEnabled(value: boolean) {
   setState({ followEnabled: value });
 }
 
+export function setWidgetOpacity(value: number) {
+  const opacity = clampWidgetOpacity(value);
+  writeWidgetOpacity(opacity);
+  setState({ widgetOpacity: opacity });
+  // Faded by the OS on the whole native window, not with CSS: the title bar,
+  // table and text all get the same alpha and the WebView2 surface stays
+  // opaque, so the game shows through instead of a white page backdrop.
+  void invokeDesktop('set_widget_opacity', { opacity });
+}
+
+async function applyZoom(command: 'zoom_in' | 'zoom_out' | 'zoom_reset') {
+  const scale = await invokeDesktop<number>(command);
+  // Zoom applies to every window and is cached in config.json; the command
+  // returns the clamped value so the main bar's label matches the real scale.
+  if (typeof scale === 'number' && Number.isFinite(scale)) {
+    setState({ uiScale: scale });
+  }
+}
+
+export async function zoomIn() {
+  await applyZoom('zoom_in');
+}
+
+export async function zoomOut() {
+  await applyZoom('zoom_out');
+}
+
+export async function zoomReset() {
+  await applyZoom('zoom_reset');
+}
+
 export async function openWidget(widget: DesktopWidget) {
   if (!state.info.mapSlug) {
     return;
@@ -141,6 +208,10 @@ export async function closeSelf() {
 }
 
 export async function setAlwaysOnTop(value: boolean) {
+  // Update the toggle first: the command persists the choice in config.json so
+  // the widget opens pinned next time. Widget windows each keep their own flag,
+  // so this is not synced through localStorage.
+  setState({ alwaysOnTop: value });
   await invokeDesktop('set_always_on_top', { value });
 }
 
@@ -153,13 +224,35 @@ async function ready() {
     return;
   }
 
-  const result = await invokeDesktop<{ lastEve?: EveForeground | null }>('desktop_ready', {
+  const result = await invokeDesktop<{
+    lastEve?: EveForeground | null;
+    widgetOpacity?: number;
+    uiScale?: number;
+    alwaysOnTop?: boolean;
+  }>('desktop_ready', {
     mode: state.info.mode,
     widget: state.info.widget,
   });
 
   if (result?.lastEve !== undefined) {
     setLastEve(result.lastEve);
+  }
+
+  // `config.json` is what the window was actually created with; align the
+  // slider (and its localStorage mirror) so a value cached by an older build
+  // does not make the UI disagree with the window.
+  if (result?.widgetOpacity != null) {
+    const opacity = clampWidgetOpacity(result.widgetOpacity);
+    writeWidgetOpacity(opacity);
+    setState({ widgetOpacity: opacity });
+  }
+
+  if (result?.uiScale != null && Number.isFinite(result.uiScale)) {
+    setState({ uiScale: result.uiScale });
+  }
+
+  if (result?.alwaysOnTop != null) {
+    setState({ alwaysOnTop: result.alwaysOnTop });
   }
 }
 
@@ -168,6 +261,10 @@ const api: DesktopBridgeApi = {
   onActiveEve,
   onDesktopState,
   setFollowEnabled,
+  setWidgetOpacity,
+  zoomIn,
+  zoomOut,
+  zoomReset,
   openWidget,
   openMain,
   openServerSettings,
@@ -186,6 +283,7 @@ export function initDesktopBridge(info: DesktopInfo) {
     ...state,
     info,
     followEnabled: readFollowEnabled(),
+    widgetOpacity: readWidgetOpacity(),
   };
 
   window.__wandererDesktop = api;

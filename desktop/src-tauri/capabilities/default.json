@@ -8,6 +8,7 @@
   },
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
     "allow-desktop-ready",
     "allow-get-server-url",
     "allow-set-server-url",
@@ -16,6 +17,10 @@
     "allow-open-main",
     "allow-close-self",
     "allow-set-always-on-top",
-    "allow-set-window-title"
+    "allow-set-window-title",
+    "allow-set-widget-opacity",
+    "allow-zoom-in",
+    "allow-zoom-out",
+    "allow-zoom-reset"
   ]
 }

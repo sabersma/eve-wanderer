@@ -24,6 +24,7 @@ import { DesktopMainBar } from '@/hooks/Mapper/desktop/DesktopMainBar';
 import { DesktopWidgetBar } from '@/hooks/Mapper/desktop/DesktopWidgetBar';
 import { DesktopWidget } from '@/hooks/Mapper/desktop/types';
 import { useDesktopBridgeState } from '@/hooks/Mapper/desktop/useDesktopBridge';
+import { useDesktopZoomShortcuts } from '@/hooks/Mapper/desktop/useDesktopZoomShortcuts';
 import { setSharedSelectedSystem } from '@/hooks/Mapper/desktop/selectedSystemStore';
 
 const DESKTOP_WIDGET_IDS: Record<DesktopWidget, WidgetsIds> = {
@@ -67,6 +68,10 @@ export const MapRootContent = ({}: MapRootContentProps) => {
   // MapInterface anyway.
   const desktopMain = desktopInfo.active && desktopInfo.mode === 'main';
 
+  // The native menu no longer carries zoom items, so the page handles
+  // Ctrl+= / Ctrl+- / Ctrl+0 in both the main map and detached windows.
+  useDesktopZoomShortcuts(desktopInfo.active);
+
   // Detached windows have no map, so they cannot know which system the user is
   // looking at in the main window. Publish the main selection for the widgets
   // to use as a follow fallback (see `useDesktopActiveSystem`).
@@ -101,6 +106,9 @@ export const MapRootContent = ({}: MapRootContentProps) => {
 
     return (
       <div className={`${themeClass} h-full w-full`}>
+        {/* The page stays fully opaque; the widget window's transparency is
+            applied to the whole native window by Rust (`WS_EX_LAYERED`), so the
+            title bar, table and text fade together without a white backdrop. */}
         <div className="flex h-full w-full flex-col overflow-hidden bg-stone-950">
           <DesktopWidgetBar widget={desktopWidget} onSwitch={setDesktopWidget} />
 

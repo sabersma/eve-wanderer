@@ -2,7 +2,9 @@ mod config;
 mod eve_watcher;
 mod windows;
 
+use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Instant;
 
 use eve_watcher::EveForeground;
 use tauri::menu::{Menu, MenuItem};
@@ -14,12 +16,19 @@ pub struct AppState {
     pub last_eve: Mutex<Option<EveForeground>>,
     /// Normalized server base URL; `None` until the setup page saves one.
     pub server_url: Mutex<Option<String>>,
+    /// Last geometry write per widget window, so dragging does not rewrite
+    /// `config.json` on every resize event.
+    pub geometry_saved_at: Mutex<HashMap<String, Instant>>,
 }
 
 /// The page calls this once its React bridge is installed. Returning the last
 /// foreground EVE window immediately avoids waiting for the next activation.
+/// Window-local state (opacity, zoom, pin) also comes from here so the page
+/// controls start at the value the window was actually created with.
 #[tauri::command]
 fn desktop_ready(
+    app: AppHandle,
+    window: WebviewWindow,
     state: State<'_, AppState>,
     mode: Option<String>,
     widget: Option<String>,
@@ -31,7 +40,17 @@ fn desktop_ready(
 
     let last_eve = state.last_eve.lock().ok().and_then(|guard| guard.clone());
 
-    serde_json::json!({ "lastEve": last_eve })
+    // Page-local caching only mirrors these; `config.json` is the source of
+    // truth, so the slider starts at the same opacity the window was created
+    // with (and a stale localStorage value from an older build is corrected).
+    serde_json::json!({
+        "lastEve": last_eve,
+        "widgetOpacity": config::widget_opacity(&app),
+        "uiScale": config::ui_scale(&app),
+        // Read from the native window rather than config: the flag is applied
+        // when the window opens, and the config is only a cache for next time.
+        "alwaysOnTop": window.is_always_on_top().unwrap_or(false),
+    })
 }
 
 #[tauri::command]
@@ -88,11 +107,36 @@ fn close_self(window: WebviewWindow) -> Result<(), String> {
     window.close().map_err(|error| error.to_string())
 }
 
+/// Pins/unpins the calling widget window and remembers the choice per widget
+/// id, so the next `open_widget` restores it.
 #[tauri::command]
-fn set_always_on_top(window: WebviewWindow, value: bool) -> Result<(), String> {
+fn set_always_on_top(app: AppHandle, window: WebviewWindow, value: bool) -> Result<(), String> {
     window
         .set_always_on_top(value)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+
+    if let Some(widget) = windows::window_key(window.label()) {
+        config::save_widget_always_on_top(&app, widget, value)?;
+    }
+
+    Ok(())
+}
+
+// Zoom is controlled from the main map bar (and the page-level shortcuts) on
+// every window, so these commands return the applied scale for the bar label.
+#[tauri::command]
+fn zoom_in(app: AppHandle) -> Result<f64, String> {
+    windows::change_ui_scale(&app, 0.1)
+}
+
+#[tauri::command]
+fn zoom_out(app: AppHandle) -> Result<f64, String> {
+    windows::change_ui_scale(&app, -0.1)
+}
+
+#[tauri::command]
+fn zoom_reset(app: AppHandle) -> Result<f64, String> {
+    windows::reset_ui_scale(&app)
 }
 
 #[tauri::command]
@@ -100,17 +144,29 @@ fn set_window_title(window: WebviewWindow, title: String) -> Result<(), String> 
     window.set_title(&title).map_err(|error| error.to_string())
 }
 
+/// Widget windows fade as a whole through the OS (`WS_EX_LAYERED`), so the page
+/// asks Rust instead of changing CSS opacity. Persisted so the next widget
+/// window opens at the same opacity.
+#[tauri::command]
+fn set_widget_opacity(app: AppHandle, opacity: f64) -> Result<(), String> {
+    windows::set_widget_opacity(&app, opacity)
+}
+
 pub fn run() {
     tauri::Builder::default()
         // A native menu keeps the server address reachable even when the
         // remote page cannot load (wrong address, server down), where the
         // in-page "服务器" button is not available.
+        //
+        // Zoom and transparency are intentionally *not* menu items: they are
+        // shown only in the main map window's in-page bar (see
+        // `DesktopMainBar`), while detached windows use Ctrl+= / Ctrl+- /
+        // Ctrl+0. A window-wide menu would repeat those controls in every
+        // small window.
         .menu(|handle| {
             let settings =
                 MenuItem::with_id(handle, "server-settings", "服务器设置…", true, None::<&str>)?;
-            let quit = MenuItem::with_id(handle, "quit", "退出", true, None::<&str>)?;
-
-            Menu::with_items(handle, &[&settings, &quit])
+            Menu::with_items(handle, &[&settings])
         })
         .on_menu_event(|app, event| {
             if event.id() == "server-settings" {
@@ -123,8 +179,6 @@ pub fn run() {
                         eprintln!("[wanderer] failed to open server settings: {error}");
                     }
                 });
-            } else if event.id() == "quit" {
-                app.exit(0);
             }
         })
         .manage(AppState::default())
@@ -137,7 +191,11 @@ pub fn run() {
             open_main,
             close_self,
             set_always_on_top,
-            set_window_title
+            set_window_title,
+            set_widget_opacity,
+            zoom_in,
+            zoom_out,
+            zoom_reset
         ])
         .setup(|app| {
             // Runtime env (dev) or the address saved on first launch. With

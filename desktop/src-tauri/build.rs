@@ -14,6 +14,10 @@ fn main() {
             "close_self",
             "set_always_on_top",
             "set_window_title",
+            "set_widget_opacity",
+            "zoom_in",
+            "zoom_out",
+            "zoom_reset",
         ]));
 
     tauri_build::try_build(attributes).expect("failed to run tauri-build");

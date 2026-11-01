@@ -14,6 +14,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# Used to verify the server address against `/desktop/update.json`. `native-tls`
+# uses the Windows certificate store (schannel), so a CA the user trusts for
+# WebView2 is trusted here too; `system-proxy` matches the WebView's proxy.
+reqwest = { version = "0.13", default-features = false, features = [
+  "native-tls",
+  "system-proxy",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }

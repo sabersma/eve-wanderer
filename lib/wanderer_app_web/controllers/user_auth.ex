@@ -65,13 +65,45 @@ defmodule WandererAppWeb.UserAuth do
   can return to `/desktop` instead of the web `/characters` page. Without this
   a freshly installed client looks exactly like the browser after login and has
   no way back to the desktop maps.
+
+  The map slug is carried along as `return`, so a client opening directly on a
+  default map comes back to that map after an expired session instead of
+  landing on the chooser. Widget windows are excluded: their route has no full
+  map page, so they fall back to the chooser.
   """
   def on_mount(:ensure_authenticated_desktop, params, session, socket) do
     case session do
       %{"user_id" => _} -> on_mount(:ensure_authenticated, params, session, socket)
-      _ -> {:halt, LiveView.redirect(socket, to: ~p"/auth/eve?desktop=1")}
+      _ -> {:halt, LiveView.redirect(socket, to: desktop_login_path(socket, params))}
     end
   end
+
+  # A widget window has no standalone map page to return to: `/desktop/:slug`
+  # would render the whole main map inside the small widget window. The main
+  # window carries the login and the chooser is the safe landing page.
+  defp desktop_login_path(%{assigns: %{live_action: :widget}}, _params),
+    do: ~p"/auth/eve?desktop=1"
+
+  defp desktop_login_path(_socket, params) do
+    case Map.get(params, "slug") do
+      slug when is_binary(slug) ->
+        if valid_map_slug?(slug) do
+          ~p"/auth/eve?desktop=1&return=#{slug}"
+        else
+          ~p"/auth/eve?desktop=1"
+        end
+
+      _ ->
+        ~p"/auth/eve?desktop=1"
+    end
+  end
+
+  @doc false
+  def valid_map_slug?(slug) when is_binary(slug) do
+    byte_size(slug) in 1..80 and slug =~ ~r/\A[A-Za-z0-9_-]+\z/
+  end
+
+  def valid_map_slug?(_), do: false
 
   @doc """
   Authenticates the user by looking into the session.

@@ -23,6 +23,12 @@ export default {
       mode: widget ? 'widget' : 'main',
       widget,
       mapSlug: this.el.dataset.mapSlug || null,
+      // Server-rendered so the client stays correct under a subpath
+      // deployment; the bar and the floating return button use these instead
+      // of assembling URLs from the current location.
+      webPath: this.el.dataset.webPath || null,
+      desktopPath: this.el.dataset.desktopPath || null,
+      desktopHome: this.el.dataset.desktopHome || null,
     });
 
     const handleError = (error: Error, componentStack: string) => {

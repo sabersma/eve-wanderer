@@ -53,7 +53,22 @@ fn desktop_ready(
         // Read from the native window rather than config: the flag is applied
         // when the window opens, and the config is only a cache for next time.
         "alwaysOnTop": window.is_always_on_top().unwrap_or(false),
+        // Lets the map bar show whether this map is already the startup map.
+        "defaultMap": config::default_map(&app),
     })
+}
+
+#[tauri::command]
+fn get_default_map(app: AppHandle) -> Option<String> {
+    config::default_map(&app)
+}
+
+/// Remembers the map the main window opens on launch. `None` clears it, so the
+/// client starts at the map chooser again.
+#[tauri::command]
+fn set_default_map(app: AppHandle, slug: Option<String>) -> Result<Option<String>, String> {
+    config::save_default_map(&app, slug.as_deref())?;
+    Ok(config::default_map(&app))
 }
 
 #[tauri::command]
@@ -70,11 +85,31 @@ fn get_server_url(state: State<'_, AppState>) -> Option<String> {
 #[tauri::command]
 async fn set_server_url(app: AppHandle, window: WebviewWindow, url: String) -> Result<(), String> {
     let normalized = config::normalize(&url)?;
-    config::save(&app, &normalized)?;
+
+    // The address field accepts a map URL; probing resolves it to the server
+    // base and drops the extra route (see `config::resolve_base`). The probe is
+    // skipped for a bare origin, so first-time setup without a path stays fast.
+    let resolved = config::resolve_base(&normalized).await?;
+
+    if !resolved.verified {
+        eprintln!(
+            "[wanderer] could not verify {normalized:?}; using {:?}",
+            resolved.base
+        );
+    }
+
+    // A different server has different maps; the saved default map would 404.
+    let server_changed = config::load(&app).as_deref() != Some(resolved.base.as_str());
+
+    config::save(&app, &resolved.base)?;
+
+    if server_changed {
+        config::save_default_map(&app, None)?;
+    }
 
     if let Some(state) = app.try_state::<AppState>() {
         if let Ok(mut guard) = state.server_url.lock() {
-            *guard = Some(normalized);
+            *guard = Some(resolved.base);
         }
     }
 
@@ -189,6 +224,8 @@ pub fn run() {
             desktop_ready,
             get_server_url,
             set_server_url,
+            get_default_map,
+            set_default_map,
             open_server_settings,
             open_widget,
             open_main,

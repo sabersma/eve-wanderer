@@ -12,6 +12,8 @@
     "allow-desktop-ready",
     "allow-get-server-url",
     "allow-set-server-url",
+    "allow-get-default-map",
+    "allow-set-default-map",
     "allow-open-server-settings",
     "allow-open-widget",
     "allow-open-main",

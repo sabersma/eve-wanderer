@@ -141,8 +141,37 @@ eve-wanderer/
   data-desktop={@desktop_mode?}
   data-widget={@desktop_widget}
   data-map-slug={@map_slug}
+  data-web-path={@map_slug && ~p"/#{@map_slug}"}
+  data-desktop-path={@map_slug && ~p"/desktop/#{@map_slug}"}
+  data-desktop-home={~p"/desktop"}
 ></div>
 ```
+
+路径由服务端渲染，客户端不按当前 `location` 拼地址，因此部署在子路径下也能在
+「网页版」(`/:slug`) 和「精简模式」(`/desktop/:slug`) 之间正确切换。
+
+### 4.1 网页版 / 精简模式切换
+
+- 精简地图工具条的「网页版」跳转到 `data-web-path`；网页地图里，只有 Tauri 客户端
+  （存在 `__TAURI__` / `__TAURI_INTERNALS__`）才在地图底部居中显示蓝色「← 回到精简模式」
+  按钮返回 `data-desktop-path`。底部居中是为了避开左侧 56px 的 Web 侧边栏，以及可停靠在
+  左下/右下的 MiniMap。
+- 两条路由属于不同的 LiveView session（布局不同），切换是整页跳转，不保留页面内的临时状态。
+
+### 4.2 默认地图与地址兼容
+
+- `config.json` 的 `default_map` 保存启动地图标识；`ensure_main` / `apply_server` 通过
+  `windows.rs` 的 `start_path()` 生成 `/desktop/:slug`，没有则用 `/desktop`。
+- 工具条「设为默认」→ `set_default_map`；`desktop_ready` 返回当前 `defaultMap` 供按钮显示状态。
+- 修改服务器地址时若 base 变化会清空 `default_map`（旧地图属于旧服务器）。
+- 默认地图被删除或失去权限时，`MapLive` 的 `map_deleted` / `no_access` 会跳到桌面感知的
+  `/desktop`，不会停在错误页。
+- 设置页允许粘贴地图 URL：`config::resolve_base` 用 `GET <base>/desktop/update.json` 探测
+  路径前缀（最长命中优先，失败时回退 `GET <base>/desktop`），从而把
+  `https://example.com/wanderer/my-map` 解析成 `https://example.com/wanderer`。
+  服务器不可达时按路径形状猜测（已知路由前的内容为子路径；≥2 段去掉最后一段；单段保留）。
+- SSO：`ensure_authenticated_desktop` 把 `slug` 作为 `return` 带上，回调成功/失败都会清理
+  `:desktop` 与 `:desktop_return`；成功时回到原地图，失败时回 `/desktop`。
 
 ## 5. 桌面模式行为
 
@@ -237,9 +266,10 @@ window.__wandererDesktop.onDesktopState({
 
 | 命令 | 参数 | 说明 |
 |---|---|---|
-| `desktop_ready` | `{ mode, widget }` | 页面就绪，返回最后一次 EVE 状态、透明度、缩放和置顶状态 |
+| `desktop_ready` | `{ mode, widget }` | 页面就绪，返回最后一次 EVE 状态、透明度、缩放、置顶状态和默认地图 |
 | `get_server_url` | — | 读取本机保存的服务器地址 |
-| `set_server_url` | `{ url }` | 校验并保存地址，重建/跳转主窗口，关闭旧 widget |
+| `set_server_url` | `{ url }` | 校验、探测并保存地址，重建/跳转主窗口，关闭旧 widget |
+| `get_default_map` / `set_default_map` | — / `{ slug }` | 读取 / 设置启动地图；`slug: null` 取消 |
 | `open_server_settings` | — | 打开服务器设置窗口 |
 | `open_widget` | `{ mapSlug, widget }` | 打开独立 widget 窗口（恢复尺寸、透明度、置顶） |
 | `open_main` | — | 打开/聚焦主地图窗口 |

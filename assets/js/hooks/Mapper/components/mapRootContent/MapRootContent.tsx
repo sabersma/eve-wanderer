@@ -21,6 +21,7 @@ import { ViewModeSelector } from '@/hooks/Mapper/components/mapRootContent/compo
 import { SubscribeReminderDialog } from '@/hooks/Mapper/components/mapRootContent/components/SubscribeReminderDialog';
 import { DEFAULT_WIDGETS, WidgetsIds } from '@/hooks/Mapper/components/mapInterface/constants.tsx';
 import { DesktopMainBar } from '@/hooks/Mapper/desktop/DesktopMainBar';
+import { isDesktopShell } from '@/hooks/Mapper/desktop/bridge';
 import { DesktopWidgetBar } from '@/hooks/Mapper/desktop/DesktopWidgetBar';
 import { DesktopWidget } from '@/hooks/Mapper/desktop/types';
 import { useDesktopBridgeState } from '@/hooks/Mapper/desktop/useDesktopBridge';
@@ -85,6 +86,12 @@ export const MapRootContent = ({}: MapRootContentProps) => {
 
   /* Important Notice - this solution needs for use one instance of MapInterface */
   const mapInterface = isReady && !desktopMain ? <MapInterface /> : null;
+
+  // Inside the Tauri shell but on the web route (`/<slug>`): offer a way back
+  // to the compact desktop layout. The path is server-rendered, so a subpath
+  // deployment is handled, and the button never appears in a normal browser.
+  const desktopReturnPath =
+    !desktopInfo.active && desktopInfo.desktopPath && isDesktopShell() ? desktopInfo.desktopPath : null;
 
   const handleShowOnTheMap = useCallback(() => setShowOnTheMap(true), []);
   const handleShowMapSettings = useCallback(() => setShowMapSettings(true), []);
@@ -177,6 +184,30 @@ export const MapRootContent = ({}: MapRootContentProps) => {
           </div>
         )}
         {desktopInfo.active && <DesktopMainBar />}
+
+        {desktopReturnPath && (
+          <button
+            type="button"
+            // Bottom-centered on purpose: the web layout's sidebar is
+            // absolutely positioned over `<main>` (56px wide), and the map
+            // minimap can be docked in either bottom corner, so a corner
+            // placement ends up half hidden depending on the user's layout.
+            // Accent color and size are deliberate: this is the only way back
+            // to the compact client UI.
+            className="absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-sky-400/70 bg-sky-600/95 px-3 py-1.5 text-sm font-medium text-white shadow-lg shadow-black/40 transition hover:border-sky-200 hover:bg-sky-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/70"
+            title="回到客户端精简界面（不显示网页菜单和地图上的小窗口）"
+            onClick={() => window.location.assign(desktopReturnPath)}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path
+                fillRule="evenodd"
+                d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z"
+                clipRule="evenodd"
+              />
+            </svg>
+            回到精简模式
+          </button>
+        )}
 
         <OnTheMap show={showOnTheMap} onHide={() => setShowOnTheMap(false)} />
         {showMapSettings && <MapSettings visible={showMapSettings} onHide={() => setShowMapSettings(false)} />}

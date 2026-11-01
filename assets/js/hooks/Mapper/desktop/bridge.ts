@@ -14,9 +14,13 @@ let state: DesktopBridgeState = {
     mode: 'main',
     widget: null,
     mapSlug: null,
+    webPath: null,
+    desktopPath: null,
+    desktopHome: null,
   },
   lastEve: null,
   followEnabled: true,
+  defaultMap: null,
   widgetOpacity: MAX_WIDGET_OPACITY,
   uiScale: 1,
   alwaysOnTop: false,
@@ -99,6 +103,11 @@ export function subscribeDesktop(listener: () => void): () => void {
 
 export function isDesktopActive(): boolean {
   return state.info.active;
+}
+
+/** True inside the Tauri shell, on either the desktop or the web route. */
+export function isDesktopShell(): boolean {
+  return typeof window !== 'undefined' && getInvoke() !== null;
 }
 
 type InvokeFn = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -219,6 +228,27 @@ export async function setWindowTitle(title: string) {
   await invokeDesktop('set_window_title', { title });
 }
 
+/**
+ * Remembers (or, with `null`, clears) the map the client opens on launch. The
+ * command returns what was stored, so the bar reflects a rejected slug instead
+ * of assuming the write succeeded.
+ */
+export async function setDefaultMap(slug: string | null): Promise<boolean> {
+  const invoke = getInvoke();
+  if (!invoke) {
+    return false;
+  }
+
+  try {
+    const stored = (await invoke('set_default_map', { slug })) as string | null;
+    setState({ defaultMap: stored ?? null });
+    return true;
+  } catch (error) {
+    console.warn('[desktop] set_default_map failed', error);
+    return false;
+  }
+}
+
 async function ready() {
   if (!state.info.active) {
     return;
@@ -229,6 +259,7 @@ async function ready() {
     widgetOpacity?: number;
     uiScale?: number;
     alwaysOnTop?: boolean;
+    defaultMap?: string | null;
   }>('desktop_ready', {
     mode: state.info.mode,
     widget: state.info.widget,
@@ -254,6 +285,10 @@ async function ready() {
   if (result?.alwaysOnTop != null) {
     setState({ alwaysOnTop: result.alwaysOnTop });
   }
+
+  if (result?.defaultMap !== undefined) {
+    setState({ defaultMap: result.defaultMap ?? null });
+  }
 }
 
 const api: DesktopBridgeApi = {
@@ -271,6 +306,7 @@ const api: DesktopBridgeApi = {
   closeSelf,
   setAlwaysOnTop,
   setWindowTitle,
+  setDefaultMap,
   ready,
 };
 
@@ -284,6 +320,7 @@ export function initDesktopBridge(info: DesktopInfo) {
     info,
     followEnabled: readFollowEnabled(),
     widgetOpacity: readWidgetOpacity(),
+    defaultMap: null,
   };
 
   window.__wandererDesktop = api;

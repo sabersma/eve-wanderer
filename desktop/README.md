@@ -42,7 +42,8 @@ $env:WANDERER_SERVER_URL = "http://localhost:4444"
 npm run dev
 ```
 
-不设置环境变量时，客户端第一次启动会显示服务器地址设置页；保存后地址会写入本机配置，之后直接进入地图选择。
+不设置环境变量时，客户端第一次启动会显示服务器地址设置页；保存后地址会写入本机配置。之后启动
+直接进入**默认地图**（如果在工具条上设置过），否则进入地图选择。
 
 ### 从 WSL 同步 `desktop/`
 
@@ -58,7 +59,8 @@ desktop/scripts/sync-to-windows.sh --dry-run  # 先看会改哪些文件
 SSO 登录沿用页面的会话 Cookie。所有窗口共享同一个 WebView2 用户数据目录，所以主窗口登录后，小窗口不需要再次登录。
 
 桌面窗口未登录时不会经过 Web 的欢迎页：`/desktop` 系列路由的 `ensure_authenticated_desktop` 直接跳到
-`/auth/eve?desktop=1`，服务端用 session 记录来源，回调成功后回到 `/desktop`（Web 登录仍回 `/characters`）。
+`/auth/eve?desktop=1&return=<地图标识>`，服务端用 session 记录来源，回调成功后回到原来那张地图
+（小窗口和没有地图标识时回 `/desktop`；Web 登录仍回 `/characters`）。
 
 ## 服务器地址
 
@@ -78,7 +80,8 @@ SSO 登录沿用页面的会话 Cookie。所有窗口共享同一个 WebView2 �
   "widget_always_on_top": { "kills": true },
   "window_sizes": {
     "signatures": { "width": 380.0, "height": 560.0, "x": 120.0, "y": 80.0 }
-  }
+  },
+  "default_map": "my-map"
 }
 ```
 
@@ -87,12 +90,19 @@ SSO 登录沿用页面的会话 Cookie。所有窗口共享同一个 WebView2 �
 - `window_sizes`：每个小窗口最后一次的大小和位置（物理像素），重新打开时恢复；换显示器或分辨率后，落不到任何屏幕上的位置会被丢弃（窗口居中打开）。
 - `widget_opacity`：小窗口整体不透明度（0.3–1.0），由主地图工具条或小窗口顶栏的「透明」滑杆修改。
 - `widget_always_on_top`：每个挂件窗口的置顶状态，重新打开该窗口时恢复。
+- `default_map`：启动时直接进入的地图标识（地图 URL 的最后一段），由主地图工具条的「设为默认」修改；
+  没有该字段时启动进入地图选择。地图被删除或失去权限时，服务端会把窗口带回地图选择，不会卡在报错页。
+  修改服务器地址会清空它。
 
 规则：
 
 - 仅接受 `https://`；本机开发可用 `http://localhost` / `http://127.0.0.1`。
 - 可以直接输入 `example.com`，会自动补全 `https://`。
 - 支持部署在子路径下，例如 `https://example.com/wanderer`。
+- **可以直接粘贴地图页地址**（如 `https://example.com/wanderer/my-map`，或 `.../desktop/my-map`）：
+  保存时用 `/desktop/update.json` 依次探测路径前缀，取服务器真正响应的最长前缀作为服务器地址；
+  旧服务器没有该接口时改用 `/desktop` 入口判断。服务器暂时连不上时按路径形状猜测（已知路由前的内容
+  视为子路径；两段以上路径去掉最后一段；单段路径保留），此时地址可能需要在服务器恢复后重新保存一次。
 - 地址只能通过设置页修改，修改后会自动关闭旧服务器的小窗口并重新加载主窗口。
 
 修改入口：
@@ -150,11 +160,22 @@ WebView2 逐像素透明必须关掉重定向位图，这会丢失系统标题�
 全屏时浮窗仍可能被挡住；`WS_EX_LAYERED` 让窗口走重定向位图合成，个别驱动/远程桌面下可能有
 性能开销，遇到时可把透明度调回 0%（alpha 255 等同不透明）。
 
+## 精简界面与网页版
+
+主窗口默认是精简地图（`/desktop/:slug`）：没有 Web 侧边栏，挂件是独立小窗口，不在地图上平铺。
+需要完整网页功能（侧边栏、地图上平铺的小窗口等）时，点工具条的「网页版」切换到 `/:slug`；
+在网页界面里点地图底部居中的蓝色「← 回到精简模式」按钮回到 `/desktop/:slug`。两者是不同的 LiveView 会话
+（布局和路由都不同），切换是整页跳转，不保留当前页面里的临时状态。
+
+网页界面里只有客户端内才显示「回到精简模式」按钮：普通浏览器没有 Tauri 的 `invoke`，不会出现。
+两个路径都由服务端渲染到 `#mapper` 的 `data-web-path` / `data-desktop-path`，所以部署在子路径
+（`https://example.com/wanderer/...`）时也能正确跳转。
+
 ## 已有的窗口与命令
 
 窗口：
 
-- `main`：`/desktop`（地图选择）→ `/desktop/:slug`（订阅模式的精简地图）。
+- `main`：默认地图（`config.json` 的 `default_map`，即 `/desktop/:slug`），没有设置时为 `/desktop`（地图选择）。
 - `widget-<slug>-signatures`：`/desktop/:slug/widget/signatures`（380 × 560）
 - `widget-<slug>-jspace`：`/desktop/:slug/widget/jspace`（360 × 420）
 - `widget-<slug>-bookmarks`：`/desktop/:slug/widget/bookmarks`（440 × 560）
@@ -169,9 +190,10 @@ WebView2 逐像素透明必须关掉重定向位图，这会丢失系统标题�
 
 | 命令 | 作用 |
 | --- | --- |
-| `desktop_ready` | 页面就绪，返回客户端版本、最后一次 EVE 前台信息、当前透明度、界面缩放和窗口置顶状态 |
+| `desktop_ready` | 页面就绪，返回客户端版本、最后一次 EVE 前台信息、当前透明度、界面缩放、窗口置顶状态和默认地图 |
 | `get_server_url` | 读取已保存的服务器地址（设置页使用） |
-| `set_server_url` | 校验并保存地址，然后跳转主窗口 |
+| `set_server_url` | 校验并探测地址（可粘贴地图页地址）、保存，然后跳转主窗口 |
+| `get_default_map` / `set_default_map` | 读取 / 设置启动地图（`null` 表示取消，回地图选择） |
 | `open_server_settings` | 打开服务器设置窗口 |
 | `open_widget` | 打开/聚焦独立小窗口（恢复上次的尺寸、透明度和置顶） |
 | `open_main` | 打开/聚焦主地图窗口 |

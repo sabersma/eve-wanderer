@@ -8,6 +8,9 @@
   data-desktop={to_string(@desktop_mode?)}
   data-widget={@desktop_widget}
   data-map-slug={@map_slug}
+  data-web-path={@map_slug && ~p"/#{@map_slug}"}
+  data-desktop-path={@map_slug && ~p"/desktop/#{@map_slug}"}
+  data-desktop-home={~p"/desktop"}
 ></div>
 
 <div :if={!@desktop_mode?} class="absolute top-0 mt-2 left-16 flex gap-1">

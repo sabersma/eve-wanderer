@@ -3,6 +3,7 @@ import {
   MIN_WIDGET_OPACITY,
   openServerSettings,
   openWidget,
+  setDefaultMap,
   setWidgetOpacity,
   zoomIn,
   zoomOut,
@@ -32,17 +33,48 @@ const buttonClass =
  * UI at all (they zoom with Ctrl+= / Ctrl+- / Ctrl+0).
  */
 export function DesktopMainBar() {
-  const { widgetOpacity, uiScale } = useDesktopBridgeState();
+  const { widgetOpacity, uiScale, info, defaultMap } = useDesktopBridgeState();
   const transparency = Math.round((MAX_WIDGET_OPACITY - widgetOpacity) * 100);
   const maxTransparency = Math.round((MAX_WIDGET_OPACITY - MIN_WIDGET_OPACITY) * 100);
+  const isDefaultMap = Boolean(info.mapSlug) && info.mapSlug === defaultMap;
+  const webPath = info.webPath;
+  // Server-rendered so the chooser link survives a subpath deployment; the
+  // literal is only a fallback for an older server that omits the attribute.
+  const desktopHome = info.desktopHome || '/desktop';
 
   return (
     <div className="absolute top-2 right-16 z-50 flex max-w-[calc(100vw-5rem)] flex-wrap items-center justify-end gap-1.5 rounded border border-stone-700/80 bg-stone-900/90 px-2 py-1 text-xs text-stone-300 shadow-lg">
-      <button type="button" className={buttonClass} onClick={() => window.location.assign('/desktop')}>
+      <button type="button" className={buttonClass} onClick={() => window.location.assign(desktopHome)}>
         地图
       </button>
+      {/* Full page reload on purpose: the web and desktop routes are separate
+          LiveView sessions with different layouts, so there is nothing to
+          preserve. The path comes from the server, not the current location,
+          so a subpath deployment navigates to the right place. */}
+      {webPath && (
+        <button
+          type="button"
+          className={buttonClass}
+          title="切换到完整网页界面（网页界面底部居中的「回到精简模式」按钮可切回）"
+          onClick={() => window.location.assign(webPath)}
+        >
+          网页版
+        </button>
+      )}
       <button type="button" className={buttonClass} title="修改服务器地址" onClick={() => void openServerSettings()}>
         服务器
+      </button>
+      <button
+        type="button"
+        className={isDefaultMap ? `${buttonClass} border-amber-500/60 text-amber-300` : buttonClass}
+        title={
+          isDefaultMap
+            ? '启动时自动进入本地图；点击取消'
+            : '设为启动地图：下次打开客户端直接进入本地图并开始同步'
+        }
+        onClick={() => void setDefaultMap(isDefaultMap ? null : info.mapSlug)}
+      >
+        {isDefaultMap ? '默认地图 ✓' : '设为默认'}
       </button>
 
       <span className="mx-0.5 h-3 w-px bg-stone-700" />

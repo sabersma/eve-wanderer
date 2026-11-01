@@ -10,14 +10,28 @@ defmodule WandererAppWeb.AuthController do
 
   # Desktop windows start SSO with `?desktop=1`. Ueberauth drops the query
   # string on its way to EVE, so the session is the only place the callback can
-  # still see where the login was started.
+  # still see where the login was started. `return` names the map the client
+  # was on (its default map or a widget), so an expired session does not send
+  # the user back to the chooser.
   defp store_desktop_origin(conn, _opts) do
     if conn.params["desktop"] in ["1", "true"] do
-      put_session(conn, :desktop, true)
+      conn
+      |> put_session(:desktop, true)
+      |> put_desktop_return(conn.params["return"])
     else
       conn
     end
   end
+
+  defp put_desktop_return(conn, slug) when is_binary(slug) do
+    if WandererAppWeb.UserAuth.valid_map_slug?(slug) do
+      put_session(conn, :desktop_return, slug)
+    else
+      conn
+    end
+  end
+
+  defp put_desktop_return(conn, _slug), do: conn
 
   def callback(%{assigns: %{ueberauth_auth: auth, current_user: user} = _assigns} = conn, _params) do
     active_tracking_pool = WandererApp.Character.TrackingConfigUtils.get_active_pool!()
@@ -128,12 +142,16 @@ defmodule WandererAppWeb.AuthController do
 
     conn = put_session(conn, :user_id, user_id)
 
-    # Desktop logins return to the desktop map chooser; the flag is cleared so
-    # a later web login in the same browser session is not affected.
+    # Desktop logins return to the map they started from (or the desktop map
+    # chooser); both flags are cleared so a later web login in the same browser
+    # session is not affected.
     if get_session(conn, :desktop) == true do
+      return_slug = get_session(conn, :desktop_return)
+
       conn
       |> delete_session(:desktop)
-      |> redirect(to: ~p"/desktop")
+      |> delete_session(:desktop_return)
+      |> redirect(to: desktop_return_path(return_slug))
     else
       conn
       |> redirect(to: "/characters")
@@ -149,9 +167,26 @@ defmodule WandererAppWeb.AuthController do
         "Failure: #{inspect(ueberauth_failure)}"
     )
 
-    conn
-    |> put_flash(:error, "Authorization failed. Please try again.")
-    |> redirect(to: "/characters")
+    if get_session(conn, :desktop) == true do
+      conn
+      |> delete_session(:desktop)
+      |> delete_session(:desktop_return)
+      |> put_flash(:error, "Authorization failed. Please try again.")
+      |> redirect(to: ~p"/desktop")
+    else
+      # A web login keeps its existing destination, where the flash renders.
+      conn
+      |> put_flash(:error, "Authorization failed. Please try again.")
+      |> redirect(to: "/characters")
+    end
+  end
+
+  defp desktop_return_path(slug) do
+    if WandererAppWeb.UserAuth.valid_map_slug?(slug) do
+      ~p"/desktop/#{slug}"
+    else
+      ~p"/desktop"
+    end
   end
 
   def signout(conn, _params) do

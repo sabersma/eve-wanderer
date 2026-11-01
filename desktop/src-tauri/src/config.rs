@@ -3,6 +3,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Url};
@@ -42,6 +43,11 @@ pub struct AppConfig {
     /// had chosen for it.
     #[serde(default)]
     pub widget_always_on_top: HashMap<String, bool>,
+    /// Map slug the main window opens on launch, so a client started with
+    /// Windows (or left running untouched) lands on its map and starts syncing
+    /// instead of stopping at the map chooser.
+    #[serde(default)]
+    pub default_map: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -52,6 +58,7 @@ impl Default for AppConfig {
             window_sizes: HashMap::new(),
             widget_opacity: DEFAULT_WIDGET_OPACITY,
             widget_always_on_top: HashMap::new(),
+            default_map: None,
         }
     }
 }
@@ -198,6 +205,213 @@ fn is_local_host(url: &Url) -> bool {
     )
 }
 
+/// Path segments that only ever belong to the app itself. Anything from the
+/// first match onward is a route, not part of a subpath deployment.
+const ROUTE_SEGMENTS: &[&str] = &[
+    "desktop",
+    "tracking",
+    "maps",
+    "characters",
+    "profile",
+    "admin",
+    "sponsors",
+    "help",
+    "access-lists",
+    "coming-soon",
+    "news",
+    "changelog",
+    "license",
+    "contacts",
+];
+
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// A base URL confirmed (or best-guessed) from what the user typed.
+pub struct ServerBase {
+    pub base: String,
+    /// True when the server itself confirmed the base path. False means the
+    /// value came from the offline guess and may need a correction later.
+    pub verified: bool,
+}
+
+impl ServerBase {
+    fn unverified(base: String) -> Self {
+        Self {
+            base,
+            verified: false,
+        }
+    }
+}
+
+/// Candidate base paths derived from the entered URL, longest first, ending
+/// with the origin. `<base>/wanderer/map-1` yields `/wanderer/map-1`,
+/// `/wanderer`, and the origin, so the longest prefix the server answers for
+/// wins and a subpath deployment is not truncated to its host.
+fn candidate_bases(url: &Url) -> Vec<String> {
+    let origin = url.origin().ascii_serialization();
+    let mut segments: Vec<String> = url
+        .path_segments()
+        .map(|segments| segments.map(str::to_string).collect())
+        .unwrap_or_default();
+
+    while segments.last().is_some_and(|segment| segment.is_empty()) {
+        segments.pop();
+    }
+
+    // Built shortest-first, then reversed, so the longest prefix is probed
+    // before the origin for a subpath deployment.
+    let mut bases: Vec<String> = vec![origin.clone()];
+    let mut path = String::new();
+
+    for segment in &segments {
+        path.push('/');
+        path.push_str(segment);
+        bases.push(format!("{origin}{path}"));
+    }
+
+    bases.reverse();
+    bases
+}
+
+/// Resolves the base URL of the server the user typed. A map address such as
+/// `https://example.com/wanderer/my-map` is accepted: every path prefix is
+/// probed against the public release manifest (then against the desktop
+/// entry point, for servers older than the manifest), and the longest one that
+/// answers becomes the base. When the server cannot be reached the value is
+/// guessed from the path shape and marked unverified.
+pub async fn resolve_base(input: &str) -> Result<ServerBase, String> {
+    let url = Url::parse(input).map_err(|error| format!("地址格式不正确：{error}"))?;
+
+    if url.path().trim_matches('/').is_empty() {
+        return Ok(ServerBase {
+            base: input.to_string(),
+            verified: true,
+        });
+    }
+
+    let bases = candidate_bases(&url);
+    let client = reqwest::Client::builder()
+        .timeout(PROBE_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(concat!("WandererDesktop/", env!("CARGO_PKG_VERSION")))
+        .build();
+
+    if let Ok(client) = client {
+        if let Some(base) = probe_all(&client, &bases).await {
+            return Ok(ServerBase {
+                base,
+                verified: true,
+            });
+        }
+    }
+
+    Ok(ServerBase::unverified(heuristic_base(&url)))
+}
+
+/// Returns the longest base that answers, or `None` when nothing does. Every
+/// candidate shares one host, so a connection failure on the first candidate
+/// means the rest would time out identically: stop instead of stalling the
+/// settings page for four timeouts.
+async fn probe_all(client: &reqwest::Client, bases: &[String]) -> Option<String> {
+    let mut saw_response = false;
+
+    for base in bases {
+        match probe_manifest(client, base).await {
+            Probe::Hit => return Some(base.clone()),
+            Probe::Miss => saw_response = true,
+            Probe::Unreachable => return None,
+        }
+    }
+
+    // Older servers predate `/desktop/update.json`; the desktop entry point is
+    // enough to tell a subpath deployment from a route on a root deployment.
+    if saw_response {
+        for base in bases {
+            match probe_desktop(client, base).await {
+                Probe::Hit => return Some(base.clone()),
+                Probe::Miss => {}
+                Probe::Unreachable => return None,
+            }
+        }
+    }
+
+    None
+}
+
+enum Probe {
+    Hit,
+    Miss,
+    Unreachable,
+}
+
+async fn probe_manifest(client: &reqwest::Client, base: &str) -> Probe {
+    let url = format!("{base}/desktop/update.json");
+
+    let response = match client.get(url.as_str()).send().await {
+        Ok(response) => response,
+        // A timeout or DNS/TLS failure is a property of the host, not the path.
+        Err(_) => return Probe::Unreachable,
+    };
+
+    if !response.status().is_success() {
+        return Probe::Miss;
+    }
+
+    let body = response.text().await.unwrap_or_default();
+
+    match serde_json::from_str::<serde_json::Value>(&body) {
+        Ok(value) if value.get("latest").is_some() => Probe::Hit,
+        _ => Probe::Miss,
+    }
+}
+
+async fn probe_desktop(client: &reqwest::Client, base: &str) -> Probe {
+    let url = format!("{base}/desktop");
+
+    match client.get(url.as_str()).send().await {
+        Ok(response) if response.status().is_success() || response.status().is_redirection() => {
+            Probe::Hit
+        }
+        Ok(_) => Probe::Miss,
+        Err(_) => Probe::Unreachable,
+    }
+}
+
+/// Best guess when the server cannot be asked. A known route marks where the
+/// base ends; otherwise a multi-segment path is treated as `<base>/<map>`,
+/// while a single segment is kept as-is because it is more likely a deployment
+/// subpath than a map slug.
+fn heuristic_base(url: &Url) -> String {
+    let origin = url.origin().ascii_serialization();
+    let segments: Vec<&str> = url
+        .path_segments()
+        .map(|segments| segments.filter(|segment| !segment.is_empty()).collect())
+        .unwrap_or_default();
+
+    if let Some(index) = segments
+        .iter()
+        .position(|segment| ROUTE_SEGMENTS.contains(segment))
+    {
+        let prefix = segments[..index].join("/");
+
+        return if prefix.is_empty() {
+            origin
+        } else {
+            format!("{origin}/{prefix}")
+        };
+    }
+
+    if segments.len() >= 2 {
+        return format!("{origin}/{}", segments[..segments.len() - 1].join("/"));
+    }
+
+    if segments.is_empty() {
+        origin
+    } else {
+        format!("{origin}/{}", segments[0])
+    }
+}
+
 /// Runtime `WANDERER_SERVER_URL` wins so `tauri dev` can point anywhere without
 /// touching the saved user configuration. Release builds normally have no such
 /// variable and fall back to the value the user entered on first launch.
@@ -221,6 +435,37 @@ pub fn load(app: &AppHandle) -> Option<String> {
 
 pub fn save(app: &AppHandle, server_url: &str) -> Result<(), String> {
     update(app, |config| config.server_url = server_url.to_string())
+}
+
+/// Map slugs are generated as `[a-z0-9-]`; the value is interpolated into a
+/// URL path, so anything else is rejected rather than sent to the WebView.
+fn is_valid_map_slug(slug: &str) -> bool {
+    !slug.is_empty()
+        && slug.len() <= 80
+        && slug
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+pub fn default_map(app: &AppHandle) -> Option<String> {
+    read(app)
+        .ok()
+        .flatten()
+        .and_then(|config| config.default_map)
+        .map(|slug| slug.trim().to_string())
+        .filter(|slug| is_valid_map_slug(slug))
+}
+
+pub fn save_default_map(app: &AppHandle, slug: Option<&str>) -> Result<(), String> {
+    let slug = slug.map(str::trim).filter(|slug| !slug.is_empty());
+
+    if let Some(slug) = slug {
+        if !is_valid_map_slug(slug) {
+            return Err("地图标识不正确".to_string());
+        }
+    }
+
+    update(app, |config| config.default_map = slug.map(str::to_string))
 }
 
 pub fn ui_scale(app: &AppHandle) -> f64 {
@@ -271,4 +516,82 @@ pub fn save_widget_always_on_top(app: &AppHandle, widget: &str, value: bool) -> 
             .widget_always_on_top
             .insert(widget.to_string(), value);
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bases(input: &str) -> Vec<String> {
+        candidate_bases(&Url::parse(input).unwrap())
+    }
+
+    fn heuristic(input: &str) -> String {
+        heuristic_base(&Url::parse(input).unwrap())
+    }
+
+    #[test]
+    fn candidates_are_longest_first_and_end_with_the_origin() {
+        assert_eq!(
+            bases("https://example.com/wanderer/my-map"),
+            vec![
+                "https://example.com/wanderer/my-map".to_string(),
+                "https://example.com/wanderer".to_string(),
+                "https://example.com".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn candidates_ignore_a_trailing_slash() {
+        assert_eq!(
+            bases("https://example.com/wanderer/"),
+            vec![
+                "https://example.com/wanderer".to_string(),
+                "https://example.com".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_bare_origin_has_one_candidate() {
+        assert_eq!(bases("https://example.com"), vec!["https://example.com"]);
+    }
+
+    #[test]
+    fn heuristic_keeps_the_subpath_before_a_known_route() {
+        assert_eq!(
+            heuristic("https://example.com/wanderer/desktop/my-map"),
+            "https://example.com/wanderer"
+        );
+        assert_eq!(
+            heuristic("https://example.com/desktop/my-map"),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn heuristic_treats_a_two_segment_path_as_base_and_slug() {
+        assert_eq!(
+            heuristic("https://example.com/wanderer/my-map"),
+            "https://example.com/wanderer"
+        );
+    }
+
+    #[test]
+    fn heuristic_keeps_a_single_segment_as_a_subpath_deployment() {
+        assert_eq!(
+            heuristic("https://example.com/wanderer"),
+            "https://example.com/wanderer"
+        );
+    }
+
+    #[test]
+    fn map_slugs_are_restricted_to_path_safe_characters() {
+        assert!(is_valid_map_slug("my-map_1"));
+        assert!(!is_valid_map_slug(""));
+        assert!(!is_valid_map_slug("../admin"));
+        assert!(!is_valid_map_slug("a/b"));
+        assert!(!is_valid_map_slug(&"a".repeat(81)));
+    }
 }

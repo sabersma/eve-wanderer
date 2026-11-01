@@ -3,9 +3,17 @@ defmodule WandererAppWeb.AuthControllerTest do
 
   alias WandererAppWeb.AuthController
 
+  # The SSO callback reads the session to decide where to return and writes a
+  # flash; in a real request the `:browser` pipeline has already fetched both.
+  defp callback_conn do
+    build_conn()
+    |> Plug.Test.init_test_session(%{})
+    |> Phoenix.Controller.fetch_flash([])
+  end
+
   describe "parameter validation and error handling" do
     test "callback/2 validates missing assigns" do
-      conn = build_conn()
+      conn = callback_conn()
       params = %{}
 
       # Should handle gracefully when required assigns are missing
@@ -34,7 +42,7 @@ defmodule WandererAppWeb.AuthControllerTest do
     test "callback/2 handles malformed auth data gracefully" do
       # Test with minimal conn structure to exercise error paths
       # The callback/2 function will match the fallback clause and redirect
-      conn = build_conn()
+      conn = callback_conn()
 
       result = AuthController.callback(conn, %{})
 
@@ -46,7 +54,7 @@ defmodule WandererAppWeb.AuthControllerTest do
     test "callback/2 processes auth structure with missing fields" do
       # Test the fallback clause since auth structure is incomplete
       # Missing CharacterOwnerHash will cause pattern match failure
-      conn = build_conn()
+      conn = callback_conn()
 
       result = AuthController.callback(conn, %{})
 
@@ -58,7 +66,7 @@ defmodule WandererAppWeb.AuthControllerTest do
     test "callback/2 exercises character creation path" do
       # Test the fallback clause for now since character creation involves complex validation
       # The actual implementation requires valid EVE character data which is complex to mock
-      conn = build_conn()
+      conn = callback_conn()
 
       result = AuthController.callback(conn, %{})
 
@@ -69,7 +77,7 @@ defmodule WandererAppWeb.AuthControllerTest do
 
     test "callback/2 handles existing user assignment" do
       # Test the fallback clause for consistent behavior
-      conn = build_conn()
+      conn = callback_conn()
 
       result = AuthController.callback(conn, %{})
 
@@ -81,8 +89,8 @@ defmodule WandererAppWeb.AuthControllerTest do
     test "callback/2 validates various auth credential formats" do
       # Test fallback clause behavior for various cases
       test_cases = [
-        build_conn(),
-        build_conn() |> assign(:some_other_assign, "value")
+        callback_conn(),
+        callback_conn() |> assign(:some_other_assign, "value")
       ]
 
       Enum.each(test_cases, fn conn ->
@@ -130,6 +138,37 @@ defmodule WandererAppWeb.AuthControllerTest do
         location_header = result.resp_headers |> Enum.find(fn {key, _} -> key == "location" end)
         assert location_header != nil
       end)
+    end
+  end
+
+  describe "desktop login" do
+    test "failed callback with a desktop session returns to the desktop shell and clears the flags" do
+      conn =
+        callback_conn()
+        |> put_session(:desktop, true)
+        |> put_session(:desktop_return, "my-map")
+
+      result = AuthController.callback(conn, %{})
+
+      assert result.status == 302
+      assert redirected_to(result) == "/desktop"
+      refute get_session(result, :desktop)
+      refute get_session(result, :desktop_return)
+    end
+
+    test "failed callback without a desktop session keeps the web redirect" do
+      result = AuthController.callback(callback_conn(), %{})
+
+      assert redirected_to(result) == "/characters"
+    end
+
+    test "valid_map_slug?/1 accepts generated slugs and rejects path traversal" do
+      assert WandererAppWeb.UserAuth.valid_map_slug?("my-map_1")
+      refute WandererAppWeb.UserAuth.valid_map_slug?("")
+      refute WandererAppWeb.UserAuth.valid_map_slug?("../admin")
+      refute WandererAppWeb.UserAuth.valid_map_slug?("a/b")
+      refute WandererAppWeb.UserAuth.valid_map_slug?(nil)
+      refute WandererAppWeb.UserAuth.valid_map_slug?(String.duplicate("a", 81))
     end
   end
 

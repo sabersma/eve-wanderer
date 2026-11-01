@@ -250,6 +250,17 @@ fn navigation_allowed(app: &AppHandle, url: &Url) -> bool {
     )
 }
 
+/// The page the main window opens on launch and after a server change: the
+/// user's saved default map when there is one, otherwise the map chooser. A
+/// deleted or unshared map falls back to the chooser on the server side, so the
+/// client does not need to validate the slug beyond its shape.
+fn start_path(app: &AppHandle) -> String {
+    match config::default_map(app) {
+        Some(slug) => format!("/desktop/{}", encode_path_segment(&slug)),
+        None => "/desktop".to_string(),
+    }
+}
+
 fn encode_path_segment(value: &str) -> String {
     let mut encoded = String::with_capacity(value.len());
 
@@ -333,7 +344,7 @@ pub fn ensure_main(app: &AppHandle) -> Result<(), String> {
 
     let (url, title) = match current_server(app) {
         Some(base) => (
-            WebviewUrl::External(page_url(&base, "/desktop")?),
+            WebviewUrl::External(page_url(&base, &start_path(app))?),
             "Wanderer".to_string(),
         ),
         None => (
@@ -362,7 +373,7 @@ pub fn ensure_main(app: &AppHandle) -> Result<(), String> {
 /// server, so they are closed, then the main window is navigated (or opened).
 pub fn apply_server(app: &AppHandle) -> Result<(), String> {
     let base = current_server(app).ok_or_else(|| "server is not configured".to_string())?;
-    let target = page_url(&base, "/desktop")?;
+    let target = page_url(&base, &start_path(app))?;
 
     for (label, window) in app.webview_windows() {
         if label.starts_with("widget-") {

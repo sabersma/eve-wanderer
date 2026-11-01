@@ -14,12 +14,20 @@ export type DesktopInfo = {
   mode: DesktopMode;
   widget: DesktopWidget | null;
   mapSlug: string | null;
+  /** Web route for this map (`/<slug>`), rendered by the server. */
+  webPath: string | null;
+  /** Desktop route for this map (`/desktop/<slug>`), rendered by the server. */
+  desktopPath: string | null;
+  /** Desktop map chooser (`/desktop`), rendered by the server. */
+  desktopHome: string | null;
 };
 
 export type DesktopBridgeState = {
   info: DesktopInfo;
   lastEve: EveForeground | null;
   followEnabled: boolean;
+  /** Map slug the client opens on launch; `null` means the chooser. */
+  defaultMap: string | null;
   /** Whole-window opacity of detached widget windows (0.3–1.0). */
   widgetOpacity: number;
   /** WebView2 zoom factor shared by every window (0.5–2.0). */
@@ -43,5 +51,6 @@ export type DesktopBridgeApi = {
   closeSelf: () => Promise<void>;
   setAlwaysOnTop: (value: boolean) => Promise<void>;
   setWindowTitle: (title: string) => Promise<void>;
+  setDefaultMap: (slug: string | null) => Promise<boolean>;
   ready: () => Promise<void>;
 };

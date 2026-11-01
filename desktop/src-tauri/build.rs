@@ -8,6 +8,8 @@ fn main() {
             "desktop_ready",
             "get_server_url",
             "set_server_url",
+            "get_default_map",
+            "set_default_map",
             "open_server_settings",
             "open_widget",
             "open_main",

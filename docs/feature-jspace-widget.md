@@ -109,9 +109,10 @@ J-Space Helper (Go) → MySQL killmail_union
 
 - `assets/js/hooks/Mapper/components/mapInterface/widgets/JspaceWidget/`：
   - `JspaceWidget.tsx`：按 `useDesktopActiveSystem` 取星系；静态信息已知且不是虫洞时直接提示，
-    未知时交给服务端判断（`reason: "not_jspace"` 同样提示）。加载成功后顶部渲染星系信息
-    （名称、虫洞等级、静态、效果、破碎标记），下面才是公司列表；列表默认只渲染前 3 行，
-    多于 3 行时显示 “Show all” 展开按钮。
+    未知时交给服务端判断（`reason: "not_jspace"` 同样提示）。星系信息（名称、中文名、虫洞等级、
+    静态、效果、破碎标记）与 J-Space Helper 链接、刷新按钮统一渲染在挂件表头；表头使用左对齐的
+    `flex-wrap` 布局，窄窗口时自动换行而不是把链接或等级挤出右侧。下方直接是公司列表，列表默认
+    只渲染前 3 行，多于 3 行时显示 “Show all” 展开按钮。
   - `hooks/useJspaceCorporations.ts`：`OutCommand.getJspaceCorporations`，请求序号防止旧响应覆盖。
   - `components/JspaceCorporationRow.tsx`：公司/联盟 logo 与名称；活跃天数紧跟公司名（不再被
     `flex-1` 推到窗口右侧）；第三行展示活动等级徽标与推断时区（本地时间窗口）。点击进入

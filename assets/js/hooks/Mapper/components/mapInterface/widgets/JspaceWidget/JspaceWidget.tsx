@@ -9,7 +9,7 @@ import { LayoutEventBlocker, TooltipPosition, WdImgButton } from '@/hooks/Mapper
 import { JSPACE_ICON } from '@/hooks/Mapper/icons';
 import { useJspaceCorporations } from './hooks/useJspaceCorporations';
 import { JspaceCorporationRow } from './components/JspaceCorporationRow';
-import { JspaceCorporation, JspaceSystem } from './types';
+import { JspaceCorporation, JspaceCorporationsResponse, JspaceSystem } from './types';
 
 const VISIBLE_CORPORATIONS = 3;
 
@@ -39,37 +39,63 @@ const staticLabel = (value?: string) => {
   return parts.length > 0 ? parts.join('/') : null;
 };
 
-const SystemHeader = ({ system }: { system: JspaceSystem }) => {
-  const systemClass = classLabel(system.class);
-  const statics = staticLabel(system.static);
+const JspaceHeader = ({
+  system,
+  fallbackName,
+  onRefresh,
+}: {
+  system?: JspaceSystem;
+  fallbackName?: string;
+  onRefresh: () => void;
+}) => {
+  const systemClass = classLabel(system?.class);
+  const statics = staticLabel(system?.static);
 
   // The dataset occasionally stores "Pulsar, Shattere"; the shattered flag is
   // already its own badge, so only the effect name matters here.
-  const effectName = system.effect?.split(',')[0]?.trim();
+  const effectName = system?.effect?.split(',')[0]?.trim();
   const effect = effectName && effectName.toLowerCase() !== 'shattered' ? getEffectLabel(effectName) : null;
+  const systemName = system?.name ?? fallbackName;
+  const link = systemName ? `https://jspace.20mm.cn/search/${encodeURIComponent(systemName.toLowerCase())}` : null;
 
   return (
-    <div className="shrink-0 border-b border-stone-800/60 px-2 py-1.5">
-      <div className="flex min-w-0 items-baseline gap-1.5">
-        <span className="shrink-0 text-xs font-medium text-stone-100">{system.name}</span>
-        {system.name_zh && <span className="truncate text-[10px] text-stone-500">{system.name_zh}</span>}
-
-        <span className="ml-auto flex shrink-0 items-center gap-1 text-[10px]">
-          {systemClass && <span className="rounded bg-stone-800/80 px-1 py-0.5 text-stone-200">{systemClass}</span>}
-          {statics && <span className="text-stone-400">{statics}</span>}
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+      <span className="shrink-0 text-stone-400">J-Space</span>
+      {systemName && (
+        <span className="shrink-0 font-medium text-stone-100" title={systemName}>
+          {systemName}
         </span>
-      </div>
-
-      {(effect || system.shattered) && (
-        <div className="mt-1 flex flex-wrap items-center gap-1">
-          {effect && (
-            <span className="rounded bg-indigo-500/10 px-1 py-0.5 text-[10px] text-indigo-300">{effect}</span>
-          )}
-          {system.shattered && (
-            <span className="rounded bg-fuchsia-500/10 px-1 py-0.5 text-[10px] text-fuchsia-300">破碎洞</span>
-          )}
-        </div>
       )}
+      {system?.name_zh && (
+        <span className="shrink-0 text-[10px] text-stone-500" title={system.name_zh}>
+          {system.name_zh}
+        </span>
+      )}
+
+      <span className="flex shrink-0 flex-wrap items-center gap-1 text-[10px]">
+        {systemClass && <span className="rounded bg-stone-800/80 px-1 py-0.5 text-stone-200">{systemClass}</span>}
+        {statics && <span className="text-stone-400">{statics}</span>}
+        {effect && <span className="rounded bg-indigo-500/10 px-1 py-0.5 text-indigo-300">{effect}</span>}
+        {system?.shattered && (
+          <span className="rounded bg-fuchsia-500/10 px-1 py-0.5 text-fuchsia-300">破碎洞</span>
+        )}
+      </span>
+
+      {/* Keep the link and refresh in the left-to-right flow: on a narrow
+          window they wrap onto the next line instead of being pushed off the
+          right edge by a `ml-auto`/`justify-between` layout. */}
+      <LayoutEventBlocker className="flex shrink-0 items-center gap-1">
+        {link && (
+          <a href={link} rel="noreferrer" target="_blank" title="Open in J-Space Helper">
+            <img src={JSPACE_ICON} width="14" height="14" className="external-icon" />
+          </a>
+        )}
+        <WdImgButton
+          className={PrimeIcons.REFRESH}
+          onClick={onRefresh}
+          tooltip={{ content: 'Refresh', position: TooltipPosition.top }}
+        />
+      </LayoutEventBlocker>
     </div>
   );
 };
@@ -111,19 +137,19 @@ const JspaceCorporationList = ({
   );
 };
 
-type JspaceContentProps = ReturnType<typeof useJspaceCorporations> & {
+type JspaceContentProps = {
   systemId?: string;
   knownNonWormhole: boolean;
+  current: JspaceCorporationsResponse | null;
+  isLoading: boolean;
+  error: string | null;
+  reload: () => Promise<void>;
 };
 
-const JspaceContent = ({ systemId, knownNonWormhole, data, isLoading, error, reload }: JspaceContentProps) => {
+const JspaceContent = ({ systemId, knownNonWormhole, current, isLoading, error, reload }: JspaceContentProps) => {
   if (!systemId) {
     return <CenteredHint>System is not selected</CenteredHint>;
   }
-
-  // Ignore an answer that belongs to a previously selected system: the reload
-  // for the new system runs in an effect, one render later.
-  const current = data?.system && Number(data.system.id) === Number(systemId) ? data : null;
 
   if (knownNonWormhole || current?.reason === 'not_jspace') {
     return (
@@ -157,8 +183,6 @@ const JspaceContent = ({ systemId, knownNonWormhole, data, isLoading, error, rel
 
   return (
     <div className={`flex h-full w-full flex-col ${isLoading ? 'opacity-60' : ''}`}>
-      <SystemHeader system={system} />
-
       {corporations.length === 0 ? (
         <div className="flex min-h-0 flex-1 items-center justify-center px-2">
           <span className="select-none text-center text-sm text-stone-400/80">
@@ -196,39 +220,25 @@ export const JspaceWidget = () => {
     enabled: !!systemId && !knownNonWormhole,
   });
 
+  // Ignore an answer that belongs to a previously selected system: the reload
+  // for the new system runs in an effect, one render later.
+  const current =
+    data?.system && systemId && Number(data.system.id) === Number(systemId) ? data : null;
+
   return (
     <Widget
       label={
-        <div className="flex h-full w-full items-center justify-between gap-1 text-xs">
-          <div className="flex min-w-0 items-center gap-1">
-            <span className="shrink-0 text-stone-400">J-Space</span>
-            {systemName && <span className="truncate text-stone-200">{systemName}</span>}
-          </div>
-
-          <LayoutEventBlocker className="flex shrink-0 items-center gap-1">
-            {systemName && (
-              <a
-                href={`https://jspace.20mm.cn/search/${systemName.toLowerCase()}`}
-                rel="noreferrer"
-                target="_blank"
-                title="Open in J-Space Helper"
-              >
-                <img src={JSPACE_ICON} width="14" height="14" className="external-icon" />
-              </a>
-            )}
-            <WdImgButton
-              className={PrimeIcons.REFRESH}
-              onClick={() => void reload()}
-              tooltip={{ content: 'Refresh', position: TooltipPosition.top }}
-            />
-          </LayoutEventBlocker>
-        </div>
+        <JspaceHeader
+          system={current?.system}
+          fallbackName={systemName}
+          onRefresh={() => void reload()}
+        />
       }
     >
       <JspaceContent
         systemId={systemId}
         knownNonWormhole={knownNonWormhole}
-        data={data}
+        current={current}
         isLoading={isLoading}
         error={error}
         reload={reload}

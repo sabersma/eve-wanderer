@@ -25,7 +25,7 @@ export const Widget = ({ label, children, windowId, contentClassName }: WidgetPr
       <div
         className={clsx(
           classes.Header,
-          'react-grid-dragHandleExample h-7 text-sm flex w-full',
+          'react-grid-dragHandleExample min-h-7 text-sm flex w-full',
           'bg-gray-400 bg-opacity-5 ',
           'px-2 py-1',
           'border-b border-gray-500 border-opacity-30',

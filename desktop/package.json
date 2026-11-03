@@ -1,7 +1,7 @@
 {
   "name": "wanderer-desktop",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Wanderer EVE map desktop shell (Tauri 2)",
   "scripts": {
     "tauri": "tauri",

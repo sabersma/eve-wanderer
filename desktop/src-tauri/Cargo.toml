@@ -1,6 +1,6 @@
 [package]
 name = "wanderer-desktop"
-version = "0.1.2"
+version = "0.1.4"
 description = "Wanderer EVE map desktop shell"
 authors = ["Wanderer"]
 edition = "2021"

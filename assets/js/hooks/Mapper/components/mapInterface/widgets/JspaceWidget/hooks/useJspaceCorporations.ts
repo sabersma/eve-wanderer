@@ -3,6 +3,8 @@ import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { OutCommand } from '@/hooks/Mapper/types';
 import { JspaceCorporationsResponse } from '@/hooks/Mapper/components/mapInterface/widgets/JspaceWidget/types.ts';
 
+// The widget shows three rows until the user expands it; five keeps one
+// expansion click useful without making the integration request expensive.
 const LIMIT = 5;
 
 const ERROR_MESSAGES: Record<string, string> = {

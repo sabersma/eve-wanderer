@@ -1,7 +1,8 @@
 # J-Space Helper 挂件（活跃公司排行）
 
 地图新增 `J-Space` 挂件：对当前星系（跟随 EVE 客户端或主图选中）展示 J-Space Helper 统计的
-**活跃天数前 5 的公司**，每行包含公司 logo/名称、联盟 logo/名称，以及 zKillboard 跳转。
+**活跃天数前 5 的公司**（默认显示前 3，可展开），顶部先展示星系类型/效果/破碎标记。
+每行包含公司 logo/名称、联盟 logo/名称、活跃天数、当前活跃等级、推断活跃时区，以及 zKillboard 跳转。
 
 本文件记录需求边界、两端改动和部署配置。
 
@@ -13,7 +14,10 @@
 | 调用路径 | 浏览器 → Wanderer（LiveView 事件）→ J-Space Helper；浏览器不直连 |
 | 保护名单 | 集成接口不使用 `protected_*` 名单（保护只约束交互式搜索页面） |
 | 显示范围 | 只显示 J 空间；其他星系显示提示 |
-| 排行 | 固定按活跃天数取前 5 |
+| 排行 | 固定按活跃天数取前 5，默认展开前 3 |
+| 星系信息 | 顶部展示星系名、虫洞等级/静态、效果与破碎标记 |
+| 活跃提示 | 高 / 中 / 低 / 无；综合最近击杀与当前 UTC 小时是否落在该公司的活跃时段 |
+| 活跃时区 | 由回看窗口内 24 小时击杀分布推断，返回 UTC 偏移与峰值时段 |
 
 不读取 EVE 客户端日志/文件；跟随行为复用既有的 `useDesktopActiveSystem`（标题匹配 + 位置）。
 
@@ -55,10 +59,25 @@ J-Space Helper (Go) → MySQL killmail_union
   `days` 不得超过入库回看天数。
 - `internal/repository/repository.go`：`GetTopCorporationsInSystemByActiveDays` 按
   `COUNT(DISTINCT killmail_dt) DESC, COUNT(DISTINCT killmail_id) DESC, corporation_id ASC`
-  排序，保证并列时结果稳定。
+  排序，保证并列时结果稳定，并带回 `MAX(killmail_dt)` 作为最近活跃日期。
+  `GetCorporationHourlyKills` 用一条 `GROUP BY corporation_id, killmail_hr` 查询取回各公司
+  的 24 小时 UTC 分布。
 - 响应：`{ system, reason?, lookback_days, corporations[] }`；非虫洞星系返回
   `reason: "not_jspace"`，无数据返回 `reason: "no_data"`。公司/联盟名先查本地 ESI 缓存，
   缺失时批量补查；失败时退化为 `Corp#id` / `Alliance#id`，不影响整个请求。
+- 每家公司新增字段：
+
+  | 字段 | 说明 |
+  |---|---|
+  | `last_active_days` | 距最近一次击杀的整天数（0 = 今天，UTC） |
+  | `activity_level` | `high` / `medium` / `low` / `none` |
+  | `timezone_offset` | 推断的 UTC 偏移（-12..+14），样本不足时省略 |
+  | `active_window_utc` | 推断的峰值活跃时段 `{start, end}`（UTC 整点，含端点，可跨午夜） |
+
+  等级规则：14 天无击杀为 `none`；最近 7 天有击杀且当前 UTC 小时落在峰值 3 小时窗口内为
+  `high`；当前 UTC 小时属于覆盖 70% 击杀的核心小时为 `medium`；其余仍算 `low`。
+  时区推断假设公司活跃高峰在本地 21:00 前后，并用 3 小时峰值窗口反推 UTC 偏移；
+  总击杀少于 10 条、或峰值窗口不足全部击杀 35%（活跃过于分散）时不输出，避免噪声。
 
 ## 4. Wanderer 侧
 
@@ -90,9 +109,13 @@ J-Space Helper (Go) → MySQL killmail_union
 
 - `assets/js/hooks/Mapper/components/mapInterface/widgets/JspaceWidget/`：
   - `JspaceWidget.tsx`：按 `useDesktopActiveSystem` 取星系；静态信息已知且不是虫洞时直接提示，
-    未知时交给服务端判断（`reason: "not_jspace"` 同样提示）。
+    未知时交给服务端判断（`reason: "not_jspace"` 同样提示）。加载成功后顶部渲染星系信息
+    （名称、虫洞等级、静态、效果、破碎标记），下面才是公司列表；列表默认只渲染前 3 行，
+    多于 3 行时显示 “Show all” 展开按钮。
   - `hooks/useJspaceCorporations.ts`：`OutCommand.getJspaceCorporations`，请求序号防止旧响应覆盖。
-  - `components/JspaceCorporationRow.tsx`：公司/联盟 logo 与名称，点击进入对应 zKillboard。
+  - `components/JspaceCorporationRow.tsx`：公司/联盟 logo 与名称；活跃天数紧跟公司名（不再被
+    `flex-1` 推到窗口右侧）；第三行展示活动等级徽标与推断时区（本地时间窗口）。点击进入
+    zKillboard。
 - 注册：`WidgetsIds.jspace`、`DEFAULT_WIDGETS`（默认隐藏）、`WIDGETS_CHECKBOXES_PROPS`。
 - 设置迁移 `to_4`：旧版本设置里没有该挂件的窗口描述，迁移时补齐缺失项；可见性不变，
   用户仍需在“地图设置 → 挂件”中打开。
@@ -114,6 +137,10 @@ J-Space Helper (Go) → MySQL killmail_union
 
 ## 6. 已知取舍
 
-- 只做前 5、只按活跃天数排序；需要更多指标（KB 数、最近活跃时间）时扩展集成接口参数即可。
+- 只做前 5、只按活跃天数排序；需要更多公司时同步调整接口 `limit` 与前端展示。
+- 活跃时区是**推断值**：只用 UTC 小时分布和“本地 21:00 高峰”假设，无法区分相隔 24 小时的
+  时区（例如 UTC+12 与 UTC-12），优先取正偏移；样本少于 10 条击杀时不显示。
+- 活跃等级在 J-Space Helper 响应时计算，并由 Wanderer 缓存 5 分钟，因此跨整点时最多滞后
+  5 分钟；它表示“该公司现在是否可能在线”，不是实时在线状态。
 - 服务端不做“权限/订阅”判断：数据来自公开击杀数据，与地图订阅无关。
 - 集成接口维护在服务端，浏览器端无法枚举 J-Space Helper 的其它页面权限。

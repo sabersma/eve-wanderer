@@ -56,6 +56,9 @@ const JspaceHeader = ({
   const effectName = system?.effect?.split(',')[0]?.trim();
   const effect = effectName && effectName.toLowerCase() !== 'shattered' ? getEffectLabel(effectName) : null;
   const systemName = system?.name ?? fallbackName;
+  // The dataset often carries the system code as its Chinese name too
+  // (e.g. "J144553"), so only show the translation when it is distinct.
+  const secondaryName = system?.name_zh && system.name_zh !== systemName ? system.name_zh : null;
   const link = systemName ? `https://jspace.20mm.cn/search/${encodeURIComponent(systemName.toLowerCase())}` : null;
 
   return (
@@ -66,9 +69,9 @@ const JspaceHeader = ({
           {systemName}
         </span>
       )}
-      {system?.name_zh && (
-        <span className="shrink-0 text-[10px] text-stone-500" title={system.name_zh}>
-          {system.name_zh}
+      {secondaryName && (
+        <span className="shrink-0 text-[10px] text-stone-500" title={secondaryName}>
+          {secondaryName}
         </span>
       )}
 

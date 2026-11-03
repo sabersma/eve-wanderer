@@ -153,8 +153,11 @@ defmodule WandererAppWeb.AuthController do
       |> delete_session(:desktop_return)
       |> redirect(to: desktop_return_path(return_slug))
     else
-      conn
-      |> redirect(to: "/characters")
+      # A protected page stores where the visitor was headed, so the download
+      # page (and any future protected controller route) is reachable in a
+      # browser that was not logged in yet. Without it, logins land on
+      # /characters as before.
+      WandererAppWeb.UserAuth.redirect_after_login(conn)
     end
   end
 

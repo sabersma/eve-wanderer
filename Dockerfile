@@ -44,7 +44,11 @@ FROM ${RUNNER_IMAGE}
 
 WORKDIR "/app"
 COPY --chmod=755 ./rel/docker-entrypoint.sh /app/entrypoint.sh
-RUN chown nobody /app
+# Mount point for the Windows client release archives served by
+# /download/desktop (see docs/desktop-release-and-usage.md). Created here so a
+# named volume inherits the right owner; the container serves it read-only.
+RUN mkdir -p /app/downloads
+RUN chown nobody /app /app/downloads
 
 # set runner ENV
 ENV MIX_ENV="prod"

@@ -124,7 +124,7 @@ defmodule WandererApp.Env do
 
   @doc """
   Latest desktop client version. The shell compares its own version against it
-  and asks the user to fetch a new build from the QQ group when it is older.
+  and points the user at `/download/desktop` when it is older.
 
   `WANDERER_DESKTOP_LATEST_VERSION` overrides it; otherwise this is the desktop
   version present in `desktop/src-tauri/tauri.conf.json` when the server was
@@ -139,6 +139,62 @@ defmodule WandererApp.Env do
 
   @doc "Release notes shown in the desktop update prompt."
   def desktop_update_notes(), do: get_key(:desktop_update_notes, "")
+
+  @doc """
+  Directory holding the Windows release archives served by `/download/desktop`.
+
+  Docker deployments mount the host directory at `/app/downloads`; set
+  `WANDERER_DESKTOP_DOWNLOAD_DIR` to use another path.
+  """
+  def desktop_download_dir do
+    case get_key(:desktop_download_dir) do
+      dir when is_binary(dir) and dir != "" -> dir
+      _ -> nil
+    end
+  end
+
+  @doc """
+  File name of the current release archive.
+
+  Defaults to the name `desktop/scripts/build.ps1` produces for the version in
+  `tauri.conf.json`; `WANDERER_DESKTOP_DOWNLOAD_FILE` overrides it.
+  """
+  def desktop_download_filename do
+    case get_key(:desktop_download_file) do
+      file when is_binary(file) and file != "" -> Path.basename(file)
+      _ -> "Wanderer_#{desktop_latest_version()}_x64.zip"
+    end
+  end
+
+  @doc """
+  Metadata for the archive currently offered for download, or `nil` when it is
+  not on disk (for example the server was deployed before the archive was
+  uploaded). The check lives here so the download page and the update manifest
+  never advertise a file that would 404.
+  """
+  def desktop_download_info do
+    with dir when is_binary(dir) <- desktop_download_dir(),
+         filename when is_binary(filename) <- safe_archive_name(desktop_download_filename()),
+         path = Path.join(dir, filename),
+         {:ok, %File.Stat{type: :regular, size: size}} <- File.stat(path) do
+      %{filename: filename, path: path, size: size, sha256: read_sha256(path)}
+    else
+      _ -> nil
+    end
+  end
+
+  defp safe_archive_name(name) do
+    if Regex.match?(~r/\A[A-Za-z0-9._-]+\.zip\z/, name), do: name
+  end
+
+  # build.ps1 writes "<hash>  <file>" to <zip>.sha256; the first token is the
+  # digest. A missing checksum file only means the page omits the hash.
+  defp read_sha256(path) do
+    case File.read(path <> ".sha256") do
+      {:ok, contents} -> contents |> String.trim() |> String.split() |> List.first()
+      _ -> nil
+    end
+  end
 
   def sse_enabled?() do
     Application.get_env(@app, :sse, [])

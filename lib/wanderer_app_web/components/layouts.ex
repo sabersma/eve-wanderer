@@ -207,6 +207,7 @@ defmodule WandererAppWeb.Layouts do
             <li><a href="/help">Help</a></li>
             <li><a href="/changelog">Changelog</a></li>
             <li><a href="/news">News</a></li>
+            <li><a href="/download/desktop">下载客户端</a></li>
             <li :if={@map_subscriptions_enabled}><a href="/sponsors">Sponsors</a></li>
             <li><a href="/license">License</a></li>
             <li><a href="/contacts">Contact Us</a></li>

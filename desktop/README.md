@@ -216,7 +216,8 @@ WebView2 逐像素透明必须关掉重定向位图，这会丢失系统标题�
 1. 调用 `desktop_ready` 取版本号（`env!("CARGO_PKG_VERSION")`），
 2. `pushEvent("desktop_heartbeat", { install_id, version, platform })` —— 服务端按
    `install_id` upsert，多开窗口只算一个安装；
-3. 拉取 `/desktop/update.json`，发现新版本时在主窗口提示成员去 Q 群共享下载。
+3. 拉取 `/desktop/update.json`，发现新版本时在主窗口提示；「前往下载」用系统浏览器
+   打开需要登录的 `/download/desktop`，登录后即可下载新 zip。
 
 网页版没有 Tauri invoke 桥，hook 直接跳过。服务端默认把**编译时从
 `src-tauri/tauri.conf.json` 读到的版本**作为最新版本（Dockerfile 会把该文件拷进构建阶段，
@@ -247,6 +248,7 @@ WebView2 逐像素透明必须关掉重定向位图，这会丢失系统标题�
 客户端本身不含地图页面，所有窗口都加载 Wanderer 服务端。因此分发安装包之前，必须先把包含以下内容的版本部署到正式服务器：
 
 - `/desktop`、`/desktop/:slug`、`/desktop/:slug/widget/:widget` 路由；
+- 登录后可访问的下载页 `/download/desktop` 和安装包目录（见 3.1 节）；
 - 重建后的 `priv/static/assets`（`cd assets && npm run build`）；
 - 可被成员访问的 HTTPS 地址和有效的 EVE SSO 回调配置。
 
@@ -307,6 +309,18 @@ Tauri 不提供“单文件绿色版”。`target/release/wanderer-desktop.exe` 
 
 WebView2 使用 `downloadBootstrapper`：Win11 自带，Win10 若缺失会由安装程序联网安装。需要完全离线安装时，改成 `embedBootstrapper` 或 `offlineInstaller`，安装包会明显变大。
 
+### 3.1 通过网站下载页分发
+
+推荐把 `desktop\dist\Wanderer_<版本>_x64.zip` 和同名的 `.sha256` 复制到服务端的下载目录
+（Docker 部署默认 `/app/downloads`，以只读卷挂载）。成员登录后访问 `/download/desktop`
+即可下载，未登录会先走 EVE SSO 再回到下载页。
+
+- 文件名必须与最新版本匹配：默认是 `Wanderer_<tauri.conf.json 版本>_x64.zip`；
+  用别的名字时设置 `WANDERER_DESKTOP_DOWNLOAD_FILE`（只取文件名）。
+- 目录必须能被容器用户 `nobody` 读取（目录 `755`、文件 `644`）。
+- 挂载命令、权限和验证步骤见
+  [`../docs/desktop-release-and-usage.md`](../docs/desktop-release-and-usage.md) 的 4.1 节。
+
 ### 4. 代码签名（可选但强烈建议）
 
 未签名的安装包会触发 Windows SmartScreen（“Windows 已保护你的电脑”），成员需要点“更多信息 → 仍要运行”。对外分发建议：
@@ -327,6 +341,7 @@ WebView2 使用 `downloadBootstrapper`：Win11 自带，Win10 若缺失会由安
 ### 6. 发布检查清单
 
 - [ ] 服务端已部署桌面路由与最新前端资源
+- [ ] 新 zip 已放入下载目录，登录后 `/download/desktop` 能下载且 SHA256 一致
 - [ ] 服务端 HTTPS 证书有效，成员可直接访问
 - [ ] 安装包未设置 `WANDERER_SERVER_URL`，首次启动会出现设置页
 - [ ] 在干净的 Windows 10/11 上安装，输入地址并完成 SSO 登录

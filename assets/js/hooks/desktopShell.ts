@@ -6,9 +6,11 @@
 //
 // - heartbeat: one upsert per window mount; the server keys by install_id, so
 //   opening several widget windows does not inflate install counts.
-// - update: the page tells the user to get the new build from the QQ group's
-//   shared files (there is no in-app updater yet). Only the main map/selection
-//   window shows it; small widget windows stay unobstructed.
+// - update: the shell only knows its own version, not the release archive.
+//   The server manifest points at the login-protected `/download/desktop`
+//   page; the notice opens it in the system browser (the WebView has no
+//   session for the browser, so the page's login flow takes over). Only the
+//   main map/selection window shows it; small widget windows stay unobstructed.
 
 const INSTALL_ID_KEY = 'wanderer:desktop:install-id';
 const UPDATE_SKIP_KEY = 'wanderer:desktop:update-skip';
@@ -159,7 +161,12 @@ function createButton(label: string, primary: boolean): HTMLButtonElement {
   return button;
 }
 
-function showUpdateNotice(payload: { latest: string; current: string; notes?: string | null }) {
+function showUpdateNotice(payload: {
+  latest: string;
+  current: string;
+  notes?: string | null;
+  downloadUrl?: string | null;
+}) {
   if (document.getElementById('desktop-update-notice')) {
     return;
   }
@@ -195,7 +202,9 @@ function showUpdateNotice(payload: { latest: string; current: string; notes?: st
   card.appendChild(title);
 
   const currentLine = document.createElement('div');
-  currentLine.textContent = `当前版本 ${payload.current}，请前往 QQ 群共享下载新版本安装包，安装后重新启动客户端。`;
+  currentLine.textContent = payload.downloadUrl
+    ? `当前版本 ${payload.current}。点击「前往下载」会在浏览器打开下载页（需要登录 Wanderer），安装后重新启动客户端即可。`
+    : `当前版本 ${payload.current}，请前往 QQ 群共享下载新版本安装包，安装后重新启动客户端。`;
   currentLine.style.cssText = 'font-size: 13px; line-height: 1.6; color: #d6d3d1;';
   card.appendChild(currentLine);
 
@@ -210,7 +219,8 @@ function showUpdateNotice(payload: { latest: string; current: string; notes?: st
   const actions = document.createElement('div');
   actions.style.cssText = 'display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px;';
 
-  const dismiss = createButton('知道了', true);
+  const dismiss = createButton('知道了', !payload.downloadUrl);
+
   dismiss.addEventListener('click', () => overlay.remove());
 
   const skip = createButton('本版本不再提醒', false);
@@ -221,9 +231,44 @@ function showUpdateNotice(payload: { latest: string; current: string; notes?: st
 
   actions.appendChild(skip);
   actions.appendChild(dismiss);
+
+  if (payload.downloadUrl) {
+    const downloadUrl = payload.downloadUrl;
+    const download = createButton('前往下载', true);
+    download.addEventListener('click', () => {
+      // target="_blank" from the app pages is handled natively
+      // (on_new_window in windows.rs) and opens the system browser.
+      window.open(downloadUrl, '_blank', 'noopener');
+    });
+    actions.appendChild(download);
+  }
+
   card.appendChild(actions);
   overlay.appendChild(card);
   document.body.appendChild(overlay);
+}
+
+// The manifest returns a path rendered by the server, so it already carries
+// any subpath deployment prefix; resolving against the current page also
+// tolerates a relative value from an older server. The page is preferred over
+// the file: it handles the login flow the protected archive requires.
+function resolveDownloadUrl(page: unknown, download: unknown): string | null {
+  const candidate =
+    typeof page === 'string' && page.trim() !== ''
+      ? page.trim()
+      : typeof download === 'string'
+        ? download.trim()
+        : '';
+
+  if (!candidate) {
+    return null;
+  }
+
+  try {
+    return new URL(candidate, window.location.href).toString();
+  } catch {
+    return null;
+  }
 }
 
 async function checkForUpdate(updateUrl: string, currentVersion: string) {
@@ -245,6 +290,8 @@ async function checkForUpdate(updateUrl: string, currentVersion: string) {
     const payload = (await response.json()) as {
       latest?: unknown;
       notes?: unknown;
+      page?: unknown;
+      download?: unknown;
     };
     const latest = typeof payload.latest === 'string' ? payload.latest.trim() : '';
 
@@ -260,6 +307,7 @@ async function checkForUpdate(updateUrl: string, currentVersion: string) {
       latest,
       current: currentVersion,
       notes: typeof payload.notes === 'string' && payload.notes.trim() !== '' ? payload.notes : null,
+      downloadUrl: resolveDownloadUrl(payload.page, payload.download),
     });
   } catch {
     // Offline or server without the endpoint: silently skip.

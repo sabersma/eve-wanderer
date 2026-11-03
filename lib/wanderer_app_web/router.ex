@@ -421,6 +421,17 @@ defmodule WandererAppWeb.Router do
     get "/", BlogController, :license
   end
 
+  # Windows client download. Not part of the public blog routes: the archive
+  # is only for members, so both the page and the file require a login.
+  # `:require_auth` remembers the requested page and `/auth/eve` returns to it
+  # after SSO.
+  scope "/download", WandererAppWeb do
+    pipe_through [:browser, :blog, :require_auth]
+
+    get "/desktop", DownloadController, :desktop
+    get "/desktop/:file", DownloadController, :desktop_file
+  end
+
   scope "/swaggerui" do
     pipe_through [:browser, :api_spec]
 

@@ -387,9 +387,10 @@ Windows 实机确认；透明度只在 Windows 生效（WSL/Linux 开发时不�
   `install_id` upsert 到 `desktop_client_v1`，所以一个客户端开多个窗口只算一个安装。
   `DesktopLive` 和 `MapLive` 都实现了该事件；网页版（没有 Tauri invoke 桥）直接跳过。
 - **更新提示**：读取布局上的 `data-update-url`（`/desktop/update.json`），比较 `latest` 与
-  客户端版本；较新时在主窗口（路径不含 `/widget/`）显示提示框，内容为前往 Q 群共享下载
-  新版本安装包。`WANDERER_DESKTOP_UPDATE_NOTES` 作为补充说明；未设置
-  `WANDERER_DESKTOP_LATEST_VERSION` 时，服务端使用编译时从
+  客户端版本；较新时在主窗口（路径不含 `/widget/`）显示提示框。清单里的 `page`
+  （`/download/desktop`）优先于 `download`，点击「前往下载」用 `window.open` 交给系统浏览器；
+  下载页需要登录，未登录时先完成 EVE SSO，再回到下载页。`WANDERER_DESKTOP_UPDATE_NOTES`
+  作为补充说明；未设置 `WANDERER_DESKTOP_LATEST_VERSION` 时，服务端使用编译时从
   `desktop/src-tauri/tauri.conf.json` 读到的版本（`WandererApp.Env` 的模块属性，
   Dockerfile 会把该文件拷进构建阶段）。「本版本不再提醒」写入 `localStorage`
   （`wanderer:desktop:update-skip`）。未接入 `tauri-plugin-updater`：不做静默下载/安装，

@@ -170,6 +170,15 @@ config :wanderer_app,
     config_dir |> get_var_from_path_or_env("WANDERER_DESKTOP_LATEST_VERSION", ""),
   desktop_update_notes:
     config_dir |> get_var_from_path_or_env("WANDERER_DESKTOP_UPDATE_NOTES", ""),
+  # Windows client release archive served by `/download/desktop`. Docker
+  # deployments mount the host directory here (see
+  # docs/desktop-release-and-usage.md); an empty value disables the download
+  # page's file link without affecting the rest of the desktop routes.
+  desktop_download_dir:
+    config_dir |> get_var_from_path_or_env("WANDERER_DESKTOP_DOWNLOAD_DIR", "/app/downloads"),
+  # Empty means "the name build.ps1 produces for the version in tauri.conf.json".
+  desktop_download_file:
+    config_dir |> get_var_from_path_or_env("WANDERER_DESKTOP_DOWNLOAD_FILE", ""),
   public_api_disabled: public_api_disabled,
   active_tracking_pool: System.get_env("WANDERER_ACTIVE_TRACKING_POOL", "default"),
   tracking_pool_max_size:

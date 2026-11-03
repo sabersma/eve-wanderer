@@ -10,9 +10,9 @@
 ```text
 [维护者] 部署服务端（/desktop 路由 + 最新前端资源 + HTTPS/SSO）
         ↓
-[维护者] 在 Windows 构建机打包 → 得到 setup.exe
+[维护者] 在 Windows 构建机打包 → 得到 setup.exe / zip
         ↓
-[维护者] 分发安装包（群文件 / 网盘）+ 版本说明
+[维护者] 上传 zip 到服务器下载目录 → 成员登录后在 /download/desktop 下载
         ↓
 [成员]   安装 → 首次填写服务器地址 → SSO 登录 → 选图
         ↓
@@ -46,7 +46,7 @@
 
 1. `/desktop` 系列路由已部署：
    `/desktop`、`/desktop/:slug`、`/desktop/:slug/widget/:widget`，
-   以及公开的版本清单 `/desktop/update.json`。
+   以及公开的版本清单 `/desktop/update.json` 和需要登录的下载页 `/download/desktop`。
 2. 前端资源已重建，且部署产物包含桌面相关改动：
 
    ```bash
@@ -64,6 +64,8 @@
 5. EVE SSO 回调配置正确：桌面未登录时会跳到 `/auth/eve?desktop=1`，回调成功后回到
    `/desktop`；Web 登录仍回 `/characters`。
 6. 用浏览器实际登录一次，确认能打开 `/desktop`、能看到地图列表。
+7. 下载目录已就绪（见 4.1 节）：`/download/desktop` 需要登录，安装包放在
+   `WANDERER_DESKTOP_DOWNLOAD_DIR`（Docker 默认 `/app/downloads`）下。
 
 ### 3. 打包
 
@@ -140,6 +142,52 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
   安装包和 `SHA256SUMS.txt`；也可以发 `desktop\dist\v<版本>\` 整个目录。
 - 手动构建时，建议自行计算并附上 SHA256。
 
+#### 4.1 通过网站下载页分发（推荐）
+
+把 `desktop\dist\Wanderer_<版本>_x64.zip` 和同名的 `.sha256` 放到服务端的下载目录，
+成员登录后访问 `/download/desktop` 即可下载。页面和文件都要求登录，未登录会先走
+EVE SSO，登录成功后自动回到下载页。
+
+单机 Docker 部署时，把宿主机目录只读挂载到容器的 `/app/downloads`：
+
+```bash
+docker run -d --name wanderer \
+  -v /srv/wanderer/downloads:/app/downloads:ro \
+  <镜像名>            # 其余参数（数据库、端口、环境变量等）保持不变
+```
+
+用 `docker-compose` 时对应：
+
+```yaml
+services:
+  wanderer:
+    volumes:
+      - /srv/wanderer/downloads:/app/downloads:ro
+```
+
+**目录权限**：容器以 `nobody`（uid 65534）运行，宿主机目录必须可读、可进入：
+
+```bash
+chmod 755 /srv/wanderer/downloads
+chmod 644 /srv/wanderer/downloads/*
+```
+
+**文件名**：默认取 `Wanderer_<最新版本>_x64.zip`。最新版本来自
+`WANDERER_DESKTOP_LATEST_VERSION`，未设置时取编译进镜像的 `tauri.conf.json` 版本。
+如果发布包用了别的名字，设置 `WANDERER_DESKTOP_DOWNLOAD_FILE`（只取文件名，不能带路径）。
+
+**校验值**：目录里同时存在 `<zip>.sha256` 时，下载页会显示 SHA256；`build.ps1` 已自动生成。
+只放 zip 也能正常下载，只是页面不显示校验值。
+
+**部署后验证**：
+
+- 退出登录后访问 `/download/desktop`，应跳转登录；登录后回到下载页。
+- 页面显示版本、文件名、大小；链接可下载 zip，`SHA256` 与本地 `Get-FileHash` 一致。
+- `curl -s https://<站点>/desktop/update.json`，文件存在时 `download` 是压缩包路径，
+  不存在时为 `null`（`page` 字段始终是下载页）。
+
+服务端不会写入该目录，只读挂载即可；目录为空时下载页显示“还没有上传”，不影响其他路由。
+
 ### 5. 版本号与代码签名
 
 - 修改版本号：`desktop/src-tauri/tauri.conf.json`（安装包文件名和版本信息以此为准），
@@ -151,8 +199,8 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
   OV/EV 代码签名证书或 Azure Trusted Signing，在 `bundle.windows` 中配置证书或
   `signCommand` 后重新打包。
 - 自动更新（`tauri-plugin-updater`）尚未接入，每次发版都需要重新分发安装包。
-  客户端启动时会检查服务端的版本清单，发现新版本后提示成员去 Q 群共享下载，
-  详见下一节。
+  客户端启动时会检查服务端的版本清单，发现新版本后在主窗口提示，点「前往下载」
+  会用系统浏览器打开登录后的下载页，详见下一节。
 
 ### 6. 更新提示与使用统计
 
@@ -163,8 +211,16 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
 客户端启动时请求公开接口 `GET /desktop/update.json`，返回：
 
 ```json
-{ "latest": "0.1.1", "notes": "本次修复……" }
+{
+  "latest": "0.1.2",
+  "notes": "本次修复……",
+  "page": "/download/desktop",
+  "download": "/download/desktop/Wanderer_0.1.2_x64.zip"
+}
 ```
+
+`download` 在安装包尚未上传时为 `null`；`page` 始终存在，客户端优先打开它（登录流程
+由页面处理）。
 
 服务端通过环境变量配置：
 
@@ -172,6 +228,8 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
 | --- | --- | --- |
 | `WANDERER_DESKTOP_LATEST_VERSION` | 编译时的客户端版本 | 最新客户端版本；只有比客户端自身版本新时才提示 |
 | `WANDERER_DESKTOP_UPDATE_NOTES` | 空 | 可选的更新说明，显示在提示框里 |
+| `WANDERER_DESKTOP_DOWNLOAD_DIR` | `/app/downloads` | 安装包所在目录；为空时下载页显示“还没有上传” |
+| `WANDERER_DESKTOP_DOWNLOAD_FILE` | `Wanderer_<最新版本>_x64.zip` | 覆盖安装包文件名（只取文件名） |
 
 默认值不是写死的：编译服务端时，`WandererApp.Env` 会读取仓库里的
 `desktop/src-tauri/tauri.conf.json`（Dockerfile 会把该文件拷进构建阶段），把版本号
@@ -181,11 +239,13 @@ zip 内含 NSIS 安装包、MSI（如果构建出）和 `SHA256SUMS.txt`；不�
 
 行为：
 
-- 只在主窗口（地图选择 / 地图）弹出，独立小窗口不打扰；提示内容是
-  “前往 Q 群共享下载新版本安装包，安装后重新启动客户端”。
+- 只在主窗口（地图选择 / 地图）弹出，独立小窗口不打扰。提示框里的「前往下载」会用
+  系统浏览器打开 `/download/desktop`；该页面需要登录，未登录时先完成 EVE SSO。
+- 安装包已上传时，提示文案直接说明“点击「前往下载」会在浏览器打开下载页”；未上传时
+  页面会显示“服务端还没有上传”，不会再提示去 QQ 群。
 - 「知道了」只关闭本次；「本版本不再提醒」写入本机 `localStorage`，同一版本不再弹出。
-- 发版流程：先上传新安装包到群共享，再部署含新版本号的服务端；改反顺序会让成员
-  看到提示却下载不到包。
+- 发版流程：建议先上传新 zip 到下载目录，再部署含新版本号的服务端；反过来的话，
+  已升级服务端而安装包缺失的时间段里，成员会看到提示但页面暂时没有文件。
 
 #### 使用统计
 
@@ -219,8 +279,9 @@ Fly.io 的 `release_command` 也是同一个脚本。只有不用 Docker/release
 - [ ] 服务端已部署 `/desktop` 路由与最新 `priv/static/assets`
 - [ ] 服务端镜像包含最新 `desktop/src-tauri/tauri.conf.json`（重建镜像后自动生效）
 - [ ] 不需要手动迁移：容器启动时会自动执行；确认日志里没有迁移失败
-- [ ] 新安装包已上传到 Q 群共享（顺序在部署新版本服务端之前）
-- [ ] 旧版本客户端启动后能看到更新提示，`/admin/desktop` 能看到上报
+- [ ] 新 zip 已放入下载目录，文件名与版本号匹配（或设置了 `WANDERER_DESKTOP_DOWNLOAD_FILE`）
+- [ ] 下载目录已挂载且 `nobody` 可读（`755` / `644`）；登录后可下载完整 zip
+- [ ] 旧版本客户端启动后能看到更新提示，「前往下载」能打开登录后的下载页，`/admin/desktop` 能看到上报
 - [ ] 服务端 HTTPS 证书有效，浏览器可正常登录并选图
 - [ ] 构建时未设置 `WANDERER_SERVER_URL`
 - [ ] `tauri.conf.json` / `package.json` 版本号已更新
@@ -249,9 +310,10 @@ Fly.io 的 `release_command` 也是同一个脚本。只有不用 Docker/release
 
 ### 8. 安装
 
-1. 取得维护者发布的 `Wanderer_<版本>_x64-setup.exe`。
-2. 双击安装。若出现 SmartScreen 提示，点「更多信息 → 仍要运行」。
-3. 按向导完成安装并启动 **Wanderer**。
+1. 在浏览器登录 Wanderer，打开下载页 `/download/desktop`（侧边栏菜单里也有「下载客户端」）。
+2. 下载 `Wanderer_<版本>_x64.zip` 并解压，运行其中的 `Wanderer_<版本>_x64-setup.exe`。
+3. 双击安装。若出现 SmartScreen 提示，点「更多信息 → 仍要运行」。
+4. 按向导完成安装并启动 **Wanderer**。
 
 系统要求：Windows 10/11 x64。其他平台不受支持。
 
@@ -369,7 +431,8 @@ Fly.io 的 `release_command` 也是同一个脚本。只有不用 Docker/release
 | `window_sizes` | 各小窗口最后的大小和位置 |
 
 - 想恢复默认：关闭客户端后删除该文件。会同时丢失服务器地址和窗口设置。
-- **更新**：目前没有自动更新，下载新安装包覆盖安装即可。服务端页面更新后，重新打开窗口
+- **更新**：目前没有自动更新，提示新版本时点「前往下载」，在浏览器登录后从
+  `/download/desktop` 重新下载 zip 并覆盖安装即可。服务端页面更新后，重新打开窗口
   或重启客户端就能看到；只有客户端外壳变化才需要新安装包。覆盖安装会保留配置文件，
   登录状态通常也会保留，若提示登录请重新 SSO 一次。
 - **卸载**：在 Windows「设置 → 应用」中卸载。`config.json` 不会自动删除，需要时可手动清理。
@@ -396,6 +459,8 @@ Fly.io 的 `release_command` 也是同一个脚本。只有不用 Docker/release
 | 快捷键缩放无效 | 焦点不在客户端窗口，或 WebView2 吞掉按键 | 先点击窗口再按；仍无效请向维护者反馈 |
 | 修改服务器后要求重新登录 | 会话按域名隔离 | 正常现象，重新 SSO 即可 |
 | 更新后没有看到新功能 | 新功能在服务端，或客户端版本未更新 | 重启客户端；确认安装的安装包版本号 |
+| 下载页提示“服务端还没有上传” | 目录未挂载、文件没放进去、文件名与版本不匹配，或 `nobody` 无读取权限 | 按 4.1 节检查挂载、文件名和权限 |
+| 下载页打不开或一直跳登录 | 未登录时的正常流程，或 SSO 回调配置有误 | 完成 EVE 登录；仍失败时先用浏览器验证 `/auth/eve` |
 
 ---
 

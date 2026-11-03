@@ -1,0 +1,54 @@
+<article class="mx-auto w-full max-w-3xl px-4 py-10 ccp-font text-stone-200">
+  <h1 class="text-2xl font-bold [text-shadow:0_0px_8px_rgba(0,0,0,0.8)]">Wanderer 桌面客户端</h1>
+  <p class="mt-2 text-sm text-stone-400">
+    Windows 10 / 11 x64 · 安装后填写服务器地址，并用 EVE 账号登录
+  </p>
+
+  <section class="mt-8 rounded border border-stone-700 bg-neutral-900/70 p-6">
+    <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      <span class="text-lg font-semibold">最新版本 {@version}</span>
+      <span :if={@download} class="text-xs text-stone-400">
+        {@download.filename} · {@size_mb} MB
+      </span>
+    </div>
+
+    <p :if={@notes} class="mt-2 whitespace-pre-wrap text-sm leading-6 text-stone-300">
+      {@notes}
+    </p>
+
+    <div :if={@download}>
+      <a
+        href={~p"/download/desktop/#{@download.filename}"}
+        class="mt-5 inline-flex items-center gap-2 rounded bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500"
+      >
+        下载 Windows 客户端
+      </a>
+      <p :if={@download.sha256} class="mt-3 break-all font-mono text-xs leading-5 text-stone-400">
+        SHA256：{@download.sha256}
+      </p>
+    </div>
+
+    <p :if={!@download} class="mt-4 text-sm text-amber-300">
+      服务端还没有上传 {@version} 的安装包，请稍后再试，或联系管理员。
+    </p>
+  </section>
+
+  <section class="mt-8 text-sm leading-6">
+    <h2 class="text-base font-semibold">安装步骤</h2>
+    <ol class="mt-2 list-decimal space-y-1 pl-5">
+      <li>下载 zip 并解压。</li>
+      <li>
+        运行 <code class="rounded bg-neutral-800 px-1 py-0.5">Wanderer_{@version}_x64-setup.exe</code>。
+        Windows 若提示“Windows 已保护你的电脑”，点“更多信息 → 仍要运行”。
+      </li>
+      <li>
+        首次启动时填写服务器地址：<code class="break-all rounded bg-neutral-800 px-1 py-0.5">{@server_url}</code>
+      </li>
+      <li>用 EVE 账号登录，选择地图即可开始同步。</li>
+    </ol>
+  </section>
+
+  <p class="mt-8 text-xs text-stone-500">
+    下载需要登录 Wanderer，仅限本站成员使用。安装包更新后，客户端启动时会自动提示新版本。
+  </p>
+</article>

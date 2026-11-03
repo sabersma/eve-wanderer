@@ -166,4 +166,42 @@ defmodule WandererAppWeb.UserAuth do
   end
 
   defp maybe_store_return_to(conn), do: conn
+
+  @doc """
+  Finishes a web login.
+
+  `require_authenticated_user/2` remembers the page an anonymous visitor asked
+  for before sending them through the login flow. Return there when it is a
+  local path; otherwise fall back to the character list, which is where web
+  logins have always landed.
+  """
+  def redirect_after_login(conn) do
+    return_to = get_session(conn, :user_return_to)
+
+    conn =
+      if is_binary(return_to) do
+        delete_session(conn, :user_return_to)
+      else
+        conn
+      end
+
+    conn
+    |> redirect(to: local_return_path(return_to) || ~p"/characters")
+  end
+
+  @doc false
+  # Same-site absolute paths only: `//evil.example`, `https://evil.example`,
+  # backslashes and control characters are dropped to keep this from becoming
+  # an open redirect.
+  def local_return_path(path) when is_binary(path) do
+    uri = URI.parse(path)
+
+    if uri.scheme == nil and uri.host == nil and is_binary(uri.path) and
+         String.starts_with?(uri.path, "/") and not String.starts_with?(uri.path, "//") and
+         not Regex.match?(~r/[\x00-\x1f\\]/, path) do
+      path
+    end
+  end
+
+  def local_return_path(_path), do: nil
 end

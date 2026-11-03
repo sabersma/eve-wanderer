@@ -1,5 +1,5 @@
 import { CharacterTypeRaw } from '@/hooks/Mapper/types/character';
-import { EveForeground } from './types';
+import { DesktopFollowMode, EveForeground } from './types';
 
 const WORD_CHAR = /[\p{L}\p{N}_]/u;
 
@@ -81,11 +81,32 @@ export function findActiveCharacter(
   })[0];
 }
 
+export function findCharacterById(
+  characters: CharacterTypeRaw[],
+  characterId: string | null,
+): CharacterTypeRaw | null {
+  if (!characterId) {
+    return null;
+  }
+
+  return characters.find(character => character.eve_id === characterId) ?? null;
+}
+
 export function resolveFollowedSystemId(
   characters: CharacterTypeRaw[],
   userCharacters: string[],
   lastEve: EveForeground | null,
+  followMode: DesktopFollowMode,
+  followCharacterId: string | null,
 ): string | null {
-  const character = findActiveCharacter(characters, userCharacters, lastEve);
+  if (followMode === 'selection') {
+    return null;
+  }
+
+  const character =
+    followMode === 'character'
+      ? findCharacterById(characters, followCharacterId)
+      : findActiveCharacter(characters, userCharacters, lastEve);
+
   return character?.location?.solar_system_id?.toString() ?? null;
 }

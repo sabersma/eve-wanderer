@@ -264,7 +264,7 @@ const MapRootHandlers = forwardRef(({ children }: WithChildren, fwdRef: Forwarde
 // eslint-disable-next-line react/display-name
 export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProviderProps) => {
   const { update, ref } = useContextStore<MapRootData>({ ...INITIAL_DATA });
-  const { info: desktopInfo, lastEve, followEnabled } = useDesktopBridgeState();
+  const { info: desktopInfo, lastEve, followMode, followCharacterId } = useDesktopBridgeState();
 
   const storedSettings = useMapUserSettings(ref, outCommand);
   const { isReady } = storedSettings;
@@ -288,17 +288,31 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
     [ref.characters, ref.userCharacters],
   );
 
-  // Desktop follow windows need the active EVE character's system to stay
-  // visible even before the user has subscribed. Display-only: it does not
-  // change the server-side add/delete rules.
+  // Desktop follow windows need the followed character's system to stay visible
+  // even before the user has subscribed. Display-only: it does not change the
+  // server-side add/delete rules.
   const desktopExtraSeedIds = useMemo(() => {
-    if (!desktopInfo.active || desktopInfo.mode !== 'widget' || !followEnabled) {
+    if (!desktopInfo.active || desktopInfo.mode !== 'widget' || followMode === 'selection') {
       return [];
     }
 
-    const systemId = resolveFollowedSystemId(ref.characters, ref.userCharacters, lastEve);
+    const systemId = resolveFollowedSystemId(
+      ref.characters,
+      ref.userCharacters,
+      lastEve,
+      followMode,
+      followCharacterId,
+    );
     return systemId ? [systemId] : [];
-  }, [desktopInfo.active, desktopInfo.mode, followEnabled, ref.characters, ref.userCharacters, lastEve]);
+  }, [
+    desktopInfo.active,
+    desktopInfo.mode,
+    followMode,
+    followCharacterId,
+    ref.characters,
+    ref.userCharacters,
+    lastEve,
+  ]);
 
   // Visible systems for the current view, shared with the search list (TopSearch)
   // so it follows the same subscription filtering as the map.

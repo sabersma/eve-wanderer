@@ -2,6 +2,14 @@ export type DesktopMode = 'main' | 'widget';
 
 export type DesktopWidget = 'signatures' | 'jspace' | 'bookmarks' | 'kills' | 'characters';
 
+/**
+ * Where a detached widget window takes its system from:
+ * - `active`: the character in the last activated EVE client window
+ * - `selection`: the system selected in the main map window
+ * - `character`: one character the user picked explicitly
+ */
+export type DesktopFollowMode = 'active' | 'selection' | 'character';
+
 export type EveForeground = {
   title: string;
   process: string;
@@ -25,7 +33,9 @@ export type DesktopInfo = {
 export type DesktopBridgeState = {
   info: DesktopInfo;
   lastEve: EveForeground | null;
-  followEnabled: boolean;
+  followMode: DesktopFollowMode;
+  /** eve_id of the character followed in `character` mode. */
+  followCharacterId: string | null;
   /** Map slug the client opens on launch; `null` means the chooser. */
   defaultMap: string | null;
   /** Whole-window opacity of detached widget windows (0.3–1.0). */
@@ -40,7 +50,8 @@ export type DesktopBridgeApi = {
   version: number;
   onActiveEve: (payload: EveForeground) => void;
   onDesktopState: (payload: { lastEve?: EveForeground | null }) => void;
-  setFollowEnabled: (value: boolean) => void;
+  setFollowMode: (mode: DesktopFollowMode) => void;
+  setFollowCharacterId: (characterId: string) => void;
   setWidgetOpacity: (value: number) => void;
   zoomIn: () => Promise<void>;
   zoomOut: () => Promise<void>;

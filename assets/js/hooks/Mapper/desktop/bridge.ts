@@ -1,6 +1,17 @@
-import { DesktopBridgeApi, DesktopBridgeState, DesktopInfo, DesktopWidget, EveForeground } from './types';
+import {
+  DesktopBridgeApi,
+  DesktopBridgeState,
+  DesktopFollowMode,
+  DesktopInfo,
+  DesktopWidget,
+  EveForeground,
+} from './types';
 
-const FOLLOW_STORAGE_KEY = 'wanderer:desktop:follow';
+const FOLLOW_MODE_STORAGE_KEY = 'wanderer:desktop:follow-mode';
+const FOLLOW_CHARACTER_STORAGE_KEY = 'wanderer:desktop:follow-character';
+// Older builds only stored a boolean. Keep reading it so an existing install
+// keeps following (or keeps its "follow off" choice) after upgrading.
+const LEGACY_FOLLOW_STORAGE_KEY = 'wanderer:desktop:follow';
 const WIDGET_OPACITY_STORAGE_KEY = 'wanderer:desktop:widget-opacity';
 
 export const MIN_WIDGET_OPACITY = 0.3;
@@ -19,7 +30,8 @@ let state: DesktopBridgeState = {
     desktopHome: null,
   },
   lastEve: null,
-  followEnabled: true,
+  followMode: 'active',
+  followCharacterId: null,
   defaultMap: null,
   widgetOpacity: MAX_WIDGET_OPACITY,
   uiScale: 1,
@@ -35,21 +47,62 @@ function setState(next: Partial<DesktopBridgeState>) {
   emit();
 }
 
-function readFollowEnabled(): boolean {
+function isFollowMode(value: string | null): value is DesktopFollowMode {
+  return value === 'active' || value === 'selection' || value === 'character';
+}
+
+function readFollowMode(): DesktopFollowMode {
   try {
-    const value = localStorage.getItem(FOLLOW_STORAGE_KEY);
-    return value == null ? true : value === 'true';
+    const stored = localStorage.getItem(FOLLOW_MODE_STORAGE_KEY);
+    if (isFollowMode(stored)) {
+      return stored;
+    }
+
+    return localStorage.getItem(LEGACY_FOLLOW_STORAGE_KEY) === 'false' ? 'selection' : 'active';
   } catch {
-    return true;
+    return 'active';
   }
 }
 
-function writeFollowEnabled(value: boolean) {
+function writeFollowMode(value: DesktopFollowMode) {
   try {
-    localStorage.setItem(FOLLOW_STORAGE_KEY, String(value));
+    localStorage.setItem(FOLLOW_MODE_STORAGE_KEY, value);
   } catch {
     // localStorage can be unavailable in hardened/private profiles.
   }
+}
+
+function readFollowCharacterId(): string | null {
+  try {
+    const value = localStorage.getItem(FOLLOW_CHARACTER_STORAGE_KEY)?.trim();
+    return value ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeFollowCharacterId(value: string | null) {
+  try {
+    if (value) {
+      localStorage.setItem(FOLLOW_CHARACTER_STORAGE_KEY, value);
+    } else {
+      localStorage.removeItem(FOLLOW_CHARACTER_STORAGE_KEY);
+    }
+  } catch {
+    // localStorage can be unavailable in hardened/private profiles.
+  }
+}
+
+/**
+ * `character` mode without a picked character has nothing to resolve, so treat
+ * it as the default active-follow instead of leaving the widget with no target.
+ */
+function normalizeFollowState(mode: DesktopFollowMode, characterId: string | null) {
+  if (mode === 'character' && !characterId) {
+    return { followMode: 'active' as DesktopFollowMode, followCharacterId: null };
+  }
+
+  return { followMode: mode, followCharacterId: characterId };
 }
 
 function clampWidgetOpacity(value: number): number {
@@ -78,14 +131,18 @@ function writeWidgetOpacity(value: number) {
   }
 }
 
-// Keep the follow toggle and widget opacity in sync across the main map and
+// Keep the follow target and widget opacity in sync across the main map and
 // every widget window (they share one WebView2 profile/origin). `storage` does
 // not fire in the window that wrote the value, hence the local setState in the
 // setters.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', event => {
-    if (event.key === FOLLOW_STORAGE_KEY) {
-      setState({ followEnabled: readFollowEnabled() });
+    if (
+      event.key === FOLLOW_MODE_STORAGE_KEY ||
+      event.key === FOLLOW_CHARACTER_STORAGE_KEY ||
+      event.key === LEGACY_FOLLOW_STORAGE_KEY
+    ) {
+      setState(normalizeFollowState(readFollowMode(), readFollowCharacterId()));
     } else if (event.key === WIDGET_OPACITY_STORAGE_KEY) {
       setState({ widgetOpacity: readWidgetOpacity() });
     }
@@ -157,9 +214,16 @@ export function onDesktopState(payload: { lastEve?: EveForeground | null }) {
   }
 }
 
-export function setFollowEnabled(value: boolean) {
-  writeFollowEnabled(value);
-  setState({ followEnabled: value });
+export function setFollowMode(value: DesktopFollowMode) {
+  writeFollowMode(value);
+  setState({ followMode: value });
+}
+
+/** Picking a character also switches to `character` mode. */
+export function setFollowCharacterId(characterId: string) {
+  writeFollowCharacterId(characterId);
+  writeFollowMode('character');
+  setState({ followMode: 'character', followCharacterId: characterId });
 }
 
 export function setWidgetOpacity(value: number) {
@@ -295,7 +359,8 @@ const api: DesktopBridgeApi = {
   version: 1,
   onActiveEve,
   onDesktopState,
-  setFollowEnabled,
+  setFollowMode,
+  setFollowCharacterId,
   setWidgetOpacity,
   zoomIn,
   zoomOut,
@@ -315,10 +380,11 @@ const api: DesktopBridgeApi = {
  * back into `window.__wandererDesktop` once the page is ready.
  */
 export function initDesktopBridge(info: DesktopInfo) {
+  const follow = normalizeFollowState(readFollowMode(), readFollowCharacterId());
   state = {
     ...state,
     info,
-    followEnabled: readFollowEnabled(),
+    ...follow,
     widgetOpacity: readWidgetOpacity(),
     defaultMap: null,
   };

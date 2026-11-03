@@ -20,18 +20,34 @@ export const SystemSignatures = () => {
     storedSettings: { settingsSignatures, settingsSignaturesUpdate },
   } = useMapRootState();
 
-  // Follows the last active EVE client inside a desktop widget window; on the
-  // web (and with follow disabled) this is the current map selection. A
-  // detached widget also falls back to the main window's selection.
-  const { systemId, lastEve, followEnabled, matchedCharacter } = useDesktopActiveSystem();
+  // Follows the desktop follow target inside a widget window; on the web this
+  // is the current map selection. A detached widget also falls back to the
+  // main window's selection.
+  const { info, systemId, lastEve, followMode, followCharacterId, followCharacter, matchedCharacter } =
+    useDesktopActiveSystem();
   const isSystemSelected = systemId != null;
 
-  // The widget has no map of its own, so "no system" is expected until EVE
-  // follow resolves (or the user selects a system in the main window). Explain
-  // it instead of leaving the + button silently doing nothing.
+  // The widget has no map of its own, so "no system" is expected until the
+  // follow target resolves (or the user selects a system in the main window).
+  // Explain it instead of leaving the + button silently doing nothing.
   const noSystemHint = (() => {
-    if (!followEnabled) {
-      return '跟随已关闭。请在顶部工具条开启“跟随”，或在主图选择一个星系。';
+    if (info.mode !== 'widget') {
+      return '请先在地图选择一个星系。';
+    }
+    if (followMode === 'selection') {
+      return '跟随方式为主图选中。请在主图选择一个星系。';
+    }
+    if (followMode === 'character') {
+      if (!followCharacterId) {
+        return '未选择跟随角色。请在顶部工具条选择角色，或在主图选择一个星系。';
+      }
+      if (!followCharacter) {
+        return `未在地图中找到角色（${followCharacterId}）；请重新选择跟随角色，或在主图选择一个星系。`;
+      }
+      if (!followCharacter.location?.solar_system_id) {
+        return `${followCharacter.name} 的位置还未同步，请稍候，或先在主图选择一个星系。`;
+      }
+      return '请先在主图选择一个星系。';
     }
     if (!lastEve) {
       return '等待 EVE 客户端激活；也可以先在主图选择一个星系。';

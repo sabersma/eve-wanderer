@@ -7,7 +7,8 @@ import {
   closeSelf,
   openMain,
   setAlwaysOnTop,
-  setFollowEnabled,
+  setFollowCharacterId,
+  setFollowMode,
   setWidgetOpacity,
   setWindowTitle,
 } from './bridge';
@@ -36,12 +37,21 @@ const ALWAYS_ON_TOP_UNSUPPORTED =
   typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
 
 export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
-  const { followEnabled, widgetOpacity, alwaysOnTop } = useDesktopBridgeState();
-  const { lastEve, matchedCharacter, systemId } = useDesktopActiveSystem();
+  const { followMode, followCharacterId, widgetOpacity, alwaysOnTop } = useDesktopBridgeState();
+  const { lastEve, matchedCharacter, followCharacter, followedCharacter, systemId } = useDesktopActiveSystem();
   const {
-    data: { wormholesData },
+    data: { characters, userCharacters, wormholesData },
   } = useMapRootState();
   const [topNotice, setTopNotice] = useState<string | null>(null);
+
+  const ownCharacters = useMemo(
+    () =>
+      characters
+        .filter(character => userCharacters.includes(character.eve_id))
+        .slice()
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [characters, userCharacters],
+  );
 
   // A detached window has no map, so nothing else preloads static system data.
   // The array must be stable: useLoadSystemStatic reloads when `systems` changes,
@@ -69,7 +79,7 @@ export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
   useEffect(() => {
     const columns = [
       WIDGET_LABELS[widget],
-      matchedCharacter?.name,
+      followedCharacter?.name,
       systemName,
       systemClassLabel,
       effectLabel,
@@ -77,7 +87,7 @@ export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
     ].filter((column): column is string => !!column);
 
     void setWindowTitle(`${columns.join(' · ')} · Wanderer`);
-  }, [effectLabel, matchedCharacter?.name, specialSystemLabel, systemClassLabel, systemName, widget]);
+  }, [effectLabel, followedCharacter?.name, specialSystemLabel, systemClassLabel, systemName, widget]);
 
   // The pin is cached per widget id in config.json, and the window is created
   // with it already applied; `desktop_ready` reports the native state so this
@@ -87,8 +97,22 @@ export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
   }, [alwaysOnTop]);
 
   const status = (() => {
-    if (!followEnabled) {
-      return systemId ? `跟随已关闭 · ${systemName ?? systemId}` : '跟随已关闭';
+    if (followMode === 'selection') {
+      return systemId ? `主图选择 · ${systemName ?? systemId}` : '主图未选择星系';
+    }
+    if (followMode === 'character') {
+      if (!followCharacterId) {
+        return '未选择跟随角色';
+      }
+      if (!followCharacter) {
+        return `角色未加载：${followCharacterId}`;
+      }
+      if (!followCharacter.location?.solar_system_id) {
+        return systemId
+          ? `${followCharacter.name}：位置未知 · 主图选择 ${systemName ?? systemId}`
+          : `${followCharacter.name}：位置未知`;
+      }
+      return `${followCharacter.name} · ${systemName ?? systemId}`;
     }
     if (lastEve == null) {
       // No EVE activation yet: the system may come from the main map fallback.
@@ -105,6 +129,24 @@ export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
     return `${matchedCharacter.name} · ${systemName ?? systemId}`;
   })();
 
+  const followValue =
+    followMode === 'character' && followCharacterId ? `character:${followCharacterId}` : followMode;
+
+  const followTargetLabel =
+    followMode === 'selection'
+      ? '主图选中'
+      : followMode === 'character'
+        ? (followCharacter?.name ?? followCharacterId ?? '未选择角色')
+        : '当前 EVE 客户端';
+
+  const handleFollowChange = (value: string) => {
+    if (value.startsWith('character:')) {
+      setFollowCharacterId(value.slice('character:'.length));
+    } else if (value === 'active' || value === 'selection') {
+      setFollowMode(value);
+    }
+  };
+
   // The window keeps its native title bar; dragging by the content bar is still
   // a convenience. `deep` makes every non-interactive part draggable; buttons,
   // labels and inputs keep their normal clicks (Tauri's drag.js checks for
@@ -116,22 +158,35 @@ export function DesktopWidgetBar({ widget, onSwitch }: DesktopWidgetBarProps) {
   return (
     <div
       data-tauri-drag-region="deep"
-      className="flex h-8 shrink-0 items-center gap-2 border-b border-stone-800 bg-stone-900/90 px-2 text-xs text-stone-300"
+      className="flex h-8 shrink-0 items-center gap-1 border-b border-stone-800 bg-stone-900/90 px-2 text-xs text-stone-300"
     >
       <span className="shrink-0 font-medium text-stone-100">{WIDGET_LABELS[widget]}</span>
       <span className="min-w-0 flex-1 truncate" title={topNotice ?? status}>
-        {topNotice ? <span className="text-amber-300">{topNotice}</span> : followEnabled ? status : '跟随已关闭'}
+        {topNotice ? <span className="text-amber-300">{topNotice}</span> : status}
       </span>
 
-      <label className="flex shrink-0 cursor-pointer items-center gap-1 select-none">
-        <input
-          type="checkbox"
-          className="checkbox checkbox-xs"
-          checked={followEnabled}
-          onChange={event => setFollowEnabled(event.target.checked)}
-        />
-        跟随
-      </label>
+      <select
+        className="h-5 w-[4.5rem] shrink-0 cursor-pointer rounded border border-stone-700 bg-stone-900 px-1 text-[11px] text-stone-200 outline-none hover:border-stone-500 focus:border-stone-500"
+        aria-label="跟随目标"
+        title={`跟随目标：${followTargetLabel}`}
+        value={followValue}
+        onChange={event => handleFollowChange(event.target.value)}
+      >
+        <option value="active">客户端</option>
+        <option value="selection">主图</option>
+        {ownCharacters.length > 0 && (
+          <optgroup label="跟随角色">
+            {ownCharacters.map(character => (
+              <option key={character.eve_id} value={`character:${character.eve_id}`}>
+                {character.name}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        {followCharacterId && !ownCharacters.some(character => character.eve_id === followCharacterId) && (
+          <option value={`character:${followCharacterId}`}>角色 {followCharacterId}</option>
+        )}
+      </select>
 
       <button
         type="button"

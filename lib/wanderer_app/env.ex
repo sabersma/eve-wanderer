@@ -39,6 +39,20 @@ defmodule WandererApp.Env do
   def public_api_disabled?(), do: get_key(:public_api_disabled, false)
 
   @doc """
+  Whether system notification subscriptions are enabled. Requires both
+  `WANDERER_NOTIFICATIONS_ENABLED` and a configured SMTP relay; see
+  `config/runtime.exs`.
+  """
+  def notifications_enabled?() do
+    :notifications |> get_key([]) |> Keyword.get(:enabled, false)
+  end
+
+  @doc "Sender name and address used for notification emails."
+  def notifications_config() do
+    :notifications |> get_key([]) |> Keyword.put_new(:from_name, "Wanderer")
+  end
+
+  @doc """
   How many systems a user with the `add_system` permission (a member) may
   subscribe to on a map. Configured with `WANDERER_SUBSCRIPTION_LIMIT_MEMBER`.
   """

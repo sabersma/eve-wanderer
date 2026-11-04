@@ -520,3 +520,44 @@ config :wanderer_app, :jspace,
   api_token: config_dir |> get_var_from_path_or_env("JSPACE_API_TOKEN", ""),
   timeout_ms: config_dir |> get_int_from_path_or_env("JSPACE_TIMEOUT_MS", 3000),
   cache_ttl_ms: config_dir |> get_int_from_path_or_env("JSPACE_CACHE_TTL_MS", 300_000)
+
+# System notification subscriptions (email). The feature is only enabled when
+# the switch is on and an SMTP relay is configured; otherwise the subscriptions
+# page explains that mail is not configured and the engine does not start.
+notifications_enabled =
+  config_dir
+  |> get_var_from_path_or_env("WANDERER_NOTIFICATIONS_ENABLED", "false")
+  |> String.to_existing_atom()
+
+smtp_host = config_dir |> get_var_from_path_or_env("SMTP_HOST", "")
+smtp_port = config_dir |> get_int_from_path_or_env("SMTP_PORT", 465)
+smtp_user = config_dir |> get_var_from_path_or_env("SMTP_USER", "")
+smtp_pass = config_dir |> get_var_from_path_or_env("SMTP_PASS", "")
+
+smtp_ssl =
+  config_dir
+  |> get_var_from_path_or_env("SMTP_SSL", if(smtp_port == 465, do: "true", else: "false"))
+  |> String.to_existing_atom()
+
+notifications_enabled = notifications_enabled and smtp_host != ""
+
+if notifications_enabled do
+  config :wanderer_app, WandererApp.Mailer,
+    adapter: Swoosh.Adapters.SMTP,
+    relay: smtp_host,
+    port: smtp_port,
+    username: smtp_user,
+    password: smtp_pass,
+    ssl: smtp_ssl,
+    tls: if(smtp_ssl, do: :never, else: :always),
+    auth: :always,
+    no_mx_lookups: true
+end
+
+config :wanderer_app, :notifications,
+  enabled: notifications_enabled,
+  from_name:
+    config_dir
+    |> get_var_from_path_or_env("NOTIFICATIONS_MAIL_FROM_NAME", "BLKSH-Wanderer 星系通知"),
+  from_address: config_dir |> get_var_from_path_or_env("NOTIFICATIONS_MAIL_FROM", smtp_user),
+  smtp_host: smtp_host

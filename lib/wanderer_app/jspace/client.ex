@@ -62,6 +62,78 @@ defmodule WandererApp.Jspace.Client do
     end
   end
 
+  @doc """
+  Searches systems by English or Chinese name.
+
+  Returns `{:ok, [system]}` on success. The result is intended for resolving
+  names a user typed into system ids; an empty list means nothing matched.
+  Error reasons are the same as `fetch_system_corporations/2`.
+  """
+  @spec search_systems(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def search_systems(query, opts \\ []) when is_binary(query) do
+    config = config()
+    query = String.trim(query)
+
+    cond do
+      config[:base_url] in [nil, ""] -> {:error, :not_configured}
+      config[:api_token] in [nil, ""] -> {:error, :not_configured}
+      query == "" -> {:ok, []}
+      true -> do_search(config, query, opts)
+    end
+  end
+
+  defp do_search(config, query, opts) do
+    url = "#{String.trim_trailing(config[:base_url], "/")}/api/integration/v1/systems/search"
+
+    params =
+      %{q: query}
+      |> put_if_present(:limit, opts[:limit])
+
+    request_opts = [
+      headers: [{"x-integration-token", config[:api_token]}],
+      params: params,
+      retry: false,
+      connect_options: [timeout: config[:timeout_ms] || @default_timeout_ms],
+      receive_timeout: config[:timeout_ms] || @default_timeout_ms
+    ]
+
+    case Req.get(url, request_opts) do
+      {:ok, %{status: 200, body: %{"systems" => systems}}} when is_list(systems) ->
+        {:ok, systems}
+
+      {:ok, %{status: 200, body: body}} ->
+        Logger.warning("J-Space system search returned an unexpected body",
+          body: body |> inspect() |> String.slice(0, 200)
+        )
+
+        {:error, :invalid_response}
+
+      {:ok, %{status: 401}} ->
+        Logger.warning("J-Space integration token rejected by #{url}")
+        {:error, :unauthorized}
+
+      {:ok, %{status: status} = response} ->
+        Logger.warning("J-Space system search failed",
+          url: url,
+          status: status,
+          body: inspect(Map.get(response, :body))
+        )
+
+        {:error, {:http_status, status}}
+
+      {:error, %{reason: :timeout}} ->
+        {:error, :timeout}
+
+      {:error, reason} ->
+        Logger.warning("J-Space system search request error",
+          url: url,
+          reason: inspect(reason)
+        )
+
+        {:error, {:request_failed, reason}}
+    end
+  end
+
   defp do_fetch(config, system_id, opts) do
     url =
       "#{String.trim_trailing(config[:base_url], "/")}/api/integration/v1/systems/#{system_id}/corporations"

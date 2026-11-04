@@ -968,6 +968,19 @@ defmodule WandererApp.Character.Tracker do
         {:ok, _character} = WandererApp.Api.Character.update_location(character, location)
         WandererApp.Character.update_character(character_id, location)
 
+        # Notification subscriptions must see location changes even when no map
+        # server is running for this character, so emit a telemetry event here
+        # instead of relying on map presence. The handler only enqueues work.
+        :telemetry.execute(
+          [:wanderer_app, :character, :location_changed],
+          %{count: 1},
+          %{
+            character_id: character_id,
+            from_system_id: solar_system_id,
+            to_system_id: location.solar_system_id
+          }
+        )
+
         :ok
 
       _ ->

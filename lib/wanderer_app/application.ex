@@ -153,6 +153,7 @@ defmodule WandererApp.Application do
         runtime_children ++
         maybe_start_corp_wallet_tracker(WandererApp.Env.map_subscriptions_enabled?()) ++
         maybe_start_kills_services() ++
+        maybe_start_notifications_services() ++
         maybe_start_external_events_services()
 
     opts = [strategy: :one_for_one, name: WandererApp.Supervisor]
@@ -211,6 +212,17 @@ defmodule WandererApp.Application do
       else
         []
       end
+    end
+  end
+
+  defp maybe_start_notifications_services do
+    if WandererApp.Env.notifications_enabled?() do
+      [
+        {Task.Supervisor, name: WandererApp.Notifications.TaskSupervisor},
+        WandererApp.Notifications.Engine
+      ]
+    else
+      []
     end
   end
 

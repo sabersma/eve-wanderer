@@ -12,7 +12,8 @@ defmodule WandererAppWeb.Nav do
     MapLive,
     MapsLive,
     CharactersLive,
-    CharactersTrackingLive
+    CharactersTrackingLive,
+    NotificationsLive
   }
 
   def on_mount(_scope, _params, _session, socket) do
@@ -72,6 +73,9 @@ defmodule WandererAppWeb.Nav do
 
         {CharactersTrackingLive, _} ->
           :characters_tracking
+
+        {NotificationsLive, _} ->
+          :notifications
 
         {HelpLive, _} ->
           :help

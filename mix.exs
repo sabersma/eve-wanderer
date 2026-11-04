@@ -85,6 +85,8 @@ defmodule WandererApp.MixProject do
       {:tailwind, "~> 0.2.2", runtime: Mix.env() == :dev},
       {:heroicons, "~> 0.5.5"},
       {:swoosh, "~> 1.3"},
+      # SMTP transport for Swoosh (system notifications).
+      {:gen_smtp, "~> 1.2"},
       {:finch, "~> 0.13"},
       {:telemetry_metrics, "~> 1.0", override: true},
       {:telemetry_poller, "~> 1.0"},

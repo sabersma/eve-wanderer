@@ -1,0 +1,346 @@
+<main class="w-full h-full col-span-2 lg:col-span-1 p-4 pl-20 overflow-auto">
+  <div class="page-content">
+    <div class="container-fluid px-[0.625rem]">
+      <div class="md:flex items-center justify-between pb-6">
+        <h4 class="text-[18px] font-medium text-gray-800 mb-sm-0 grow dark:text-gray-100 mb-2 md:mb-0">
+          星系通知订阅
+        </h4>
+      </div>
+
+      <div
+        :if={not @notifications_enabled? or not @smtp_configured?}
+        class="alert alert-warning mb-6 text-sm"
+      >
+        <span>
+          通知功能当前未启用。请在服务端设置 <code>WANDERER_NOTIFICATIONS_ENABLED=true</code>
+          以及 <code>SMTP_HOST</code>/<code>SMTP_PORT</code>/<code>SMTP_USER</code>/<code>SMTP_PASS</code> 后重启服务。订阅配置仍然可以保存，但不会发送邮件。
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 2xl:grid-cols-3 gap-6">
+        <div class="card dark:bg-zinc-800 dark:border-zinc-600 2xl:col-span-2">
+          <div class="card-body">
+            <h5 class="text-gray-800 dark:text-gray-100">
+              {if @editing_id, do: "编辑订阅", else: "新建订阅"}
+            </h5>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+              订阅必须选择一张地图，系统只会评估该地图中已开启位置跟踪、且仍然拥有该地图权限的角色。
+              可以选择只监控指定的几个星系，也可以不指定星系、按虫洞等级与 Top1 军团活跃情况筛选。
+            </p>
+
+            <div :if={@errors != []} class="alert alert-error mb-3 text-sm">
+              <ul class="list-disc pl-5">
+                <li :for={error <- @errors}>{error}</li>
+              </ul>
+            </div>
+
+            <.form
+              for={@form}
+              id="notification-form"
+              phx-change="validate"
+              phx-submit="save"
+              class="grid grid-cols-1 md:grid-cols-2 gap-4"
+            >
+              <div class="md:col-span-2">
+                <.input
+                  field={@form[:map_id]}
+                  type="select"
+                  label="地图"
+                  prompt="请选择地图"
+                  required
+                  options={Enum.map(@maps, &{map_option_label(&1, @tracked_counts), &1.id})}
+                />
+                <p :if={@maps == []} class="text-xs text-warning mt-1">
+                  你没有可管理的地图，无法创建订阅。
+                </p>
+              </div>
+
+              <.input field={@form[:name]} type="text" label="订阅名称" required />
+
+              <.input
+                field={@form[:cooldown_hours]}
+                type="number"
+                label="冷却时间（小时）"
+                min="1"
+                max="720"
+                required
+              />
+
+              <div class="md:col-span-2">
+                <span class="label-text">筛选方式</span>
+                <div class="flex flex-col sm:flex-row gap-3 mt-2">
+                  <label class="flex items-start gap-2 flex-1 cursor-pointer rounded border border-gray-300 dark:border-zinc-600 p-3">
+                    <input
+                      type="radio"
+                      class="radio radio-sm mt-0.5"
+                      name="subscription[mode]"
+                      value="systems"
+                      checked={@form[:mode].value == "systems"}
+                    />
+                    <span>
+                      <span class="block text-sm text-gray-800 dark:text-gray-100">指定星系</span>
+                      <span class="block text-xs text-gray-500 dark:text-gray-400">
+                        只监控清单中的星系，不需要再填写等级、活跃天数或时区
+                      </span>
+                    </span>
+                  </label>
+                  <label class="flex items-start gap-2 flex-1 cursor-pointer rounded border border-gray-300 dark:border-zinc-600 p-3">
+                    <input
+                      type="radio"
+                      class="radio radio-sm mt-0.5"
+                      name="subscription[mode]"
+                      value="filters"
+                      checked={@form[:mode].value == "filters"}
+                    />
+                    <span>
+                      <span class="block text-sm text-gray-800 dark:text-gray-100">按条件筛选</span>
+                      <span class="block text-xs text-gray-500 dark:text-gray-400">
+                        不指定星系，对角色进入的星系按等级、活跃天数和时区匹配
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <div :if={@form[:mode].value == "systems"} class="md:col-span-2">
+                <.input
+                  field={@form[:systems]}
+                  type="textarea"
+                  label="星系（每行一个，也支持逗号分隔；英文名、中文名或星系 ID）"
+                  placeholder={"例如：\nJ123456\nC140\nJita\n" <> "吉塔"}
+                  required
+                />
+              </div>
+
+              <div
+                :if={@form[:mode].value == "filters"}
+                class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4"
+              >
+                <div class="md:col-span-2">
+                  <span class="label-text">虫洞星系等级（不选表示不限）</span>
+                  <div class="flex flex-wrap gap-x-5 gap-y-2 mt-2">
+                    <label
+                      :for={class <- @classes}
+                      class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+                    >
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-sm"
+                        name="subscription[wormhole_classes][]"
+                        value={class}
+                        checked={
+                          to_string(class) in checkbox_values(@form[:wormhole_classes].value)
+                        }
+                      />
+                      <span>C{class}</span>
+                    </label>
+                  </div>
+                </div>
+
+                <.input
+                  field={@form[:min_active_days]}
+                  type="number"
+                  label="Top1 活跃军团 60D 活跃天数下限"
+                  min="0"
+                  max="60"
+                  placeholder="不限"
+                />
+
+                <.input
+                  field={@form[:max_active_days]}
+                  type="number"
+                  label="Top1 活跃军团 60D 活跃天数上限"
+                  min="0"
+                  max="60"
+                  placeholder="不限"
+                />
+
+                <.input
+                  field={@form[:timezone_min]}
+                  type="select"
+                  label="Top1 活跃军团时区下限"
+                  prompt="不限"
+                  options={
+                    Enum.map(@timezone_options, &{timezone_label(&1), Integer.to_string(&1)})
+                  }
+                />
+
+                <.input
+                  field={@form[:timezone_max]}
+                  type="select"
+                  label="Top1 活跃军团时区上限"
+                  prompt="不限"
+                  options={
+                    Enum.map(@timezone_options, &{timezone_label(&1), Integer.to_string(&1)})
+                  }
+                />
+
+                <div class="md:col-span-2">
+                  <.input
+                    type="checkbox"
+                    field={@form[:allow_missing_timezone]}
+                    label="Top1 军团没有推断时区时仍然匹配"
+                  />
+                </div>
+
+                <p class="md:col-span-2 text-xs text-gray-500 dark:text-gray-400">
+                  至少设置虫洞等级、活跃天数或时区中的一个。虫洞等级 1-6
+                  只适用于虫洞星系；Top1 军团的活跃天数与时区来自 J-Space Helper
+                  的虫洞击杀统计，已知空间通常没有这些数据。
+                </p>
+              </div>
+
+              <div class="md:col-span-2">
+                <.input type="checkbox" field={@form[:enabled]} label="启用此订阅" />
+              </div>
+
+              <div class="md:col-span-2">
+                <.input
+                  field={@form[:recipient_emails]}
+                  type="textarea"
+                  label="收件邮箱（每行一个，也支持逗号分隔）"
+                  required
+                />
+              </div>
+
+              <div class="md:col-span-2 flex items-center gap-3 mt-2">
+                <button type="submit" class="btn btn-primary btn-sm">
+                  {if @editing_id, do: "保存修改", else: "创建订阅"}
+                </button>
+                <button
+                  :if={@editing_id}
+                  type="button"
+                  phx-click="cancel"
+                  class="btn btn-ghost btn-sm"
+                >
+                  取消
+                </button>
+              </div>
+            </.form>
+          </div>
+        </div>
+
+        <div class="card dark:bg-zinc-800 dark:border-zinc-600">
+          <div class="card-body">
+            <h5 class="text-gray-800 dark:text-gray-100">最近发送记录</h5>
+            <p :if={@deliveries == []} class="text-sm text-gray-500 dark:text-gray-400 mt-2">
+              暂无发送记录。
+            </p>
+            <div :if={@deliveries != []} class="overflow-x-auto mt-2">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>订阅</th>
+                    <th>星系</th>
+                    <th>角色</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={delivery <- @deliveries}>
+                    <td class="whitespace-nowrap text-xs">{format_time(delivery.inserted_at)}</td>
+                    <td class="text-xs">
+                      {Map.get(@subscription_names, delivery.subscription_id, "-")}
+                    </td>
+                    <td class="text-xs">{delivery.system_name || delivery.system_id}</td>
+                    <td class="text-xs">{delivery.character_name || "-"}</td>
+                    <td class="text-xs">
+                      <span class={["badge badge-sm", status_class(delivery.status)]}>
+                        {delivery.status}
+                      </span>
+                      <span :if={delivery.error} class="text-error ml-1" title={delivery.error}>
+                        !
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-8">
+        <h5 class="text-gray-800 dark:text-gray-100 mb-3">我的订阅</h5>
+        <p :if={@subscriptions == []} class="text-sm text-gray-500 dark:text-gray-400">
+          还没有订阅。在上方选择地图并填写筛选条件后创建。
+        </p>
+
+        <div class="grid grid-cols-1 gap-4">
+          <div
+            :for={subscription <- @subscriptions}
+            class="card dark:bg-zinc-800 dark:border-zinc-600"
+          >
+            <div class="card-body">
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <h5 class="text-gray-800 dark:text-gray-100">{subscription.name}</h5>
+                    <span class={[
+                      "badge badge-sm",
+                      if(subscription.enabled, do: "badge-success", else: "badge-ghost")
+                    ]}>
+                      {if subscription.enabled, do: "启用", else: "停用"}
+                    </span>
+                  </div>
+                  <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    地图：{map_name(@maps, subscription.map_id) || subscription.map_id}
+                  </p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    phx-click="edit"
+                    phx-value-id={subscription.id}
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    phx-click="test"
+                    phx-value-id={subscription.id}
+                    disabled={not @notifications_enabled? or not @smtp_configured?}
+                  >
+                    测试邮件
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    phx-click="toggle"
+                    phx-value-id={subscription.id}
+                  >
+                    {if subscription.enabled, do: "停用", else: "启用"}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs text-error"
+                    phx-click="delete"
+                    phx-value-id={subscription.id}
+                    data-confirm="确定删除该订阅？发送记录也会一起删除。"
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+
+              <p class="text-sm text-gray-700 dark:text-gray-300 mt-2">
+                {if specific_subscription?(subscription),
+                  do: "星系：#{Enum.join(subscription.system_names, "、")}",
+                  else: "匹配方式：按条件筛选"}
+              </p>
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {filter_summary(subscription)}
+              </p>
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                收件人：{Enum.join(subscription.recipient_emails, "、")}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>

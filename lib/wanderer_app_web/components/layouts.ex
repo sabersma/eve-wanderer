@@ -240,6 +240,12 @@ defmodule WandererAppWeb.Layouts do
             tip="Characters Tracking"
           />
           <.nav_link
+            href="/notifications"
+            active={@active_tab == :notifications}
+            icon="hero-bell-alert-solid"
+            tip="System Notifications"
+          />
+          <.nav_link
             :if={@map_subscriptions_enabled}
             href="/sponsors"
             active={@active_tab == :sponsors}

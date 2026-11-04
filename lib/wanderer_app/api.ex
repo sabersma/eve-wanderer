@@ -39,5 +39,7 @@ defmodule WandererApp.Api do
     resource WandererApp.Api.MapPing
     resource WandererApp.Api.MapInvite
     resource WandererApp.Api.MapWebhookSubscription
+    resource WandererApp.Api.NotificationSubscription
+    resource WandererApp.Api.NotificationDelivery
   end
 end

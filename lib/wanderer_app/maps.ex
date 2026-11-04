@@ -243,6 +243,10 @@ defmodule WandererApp.Maps do
                 acls
                 |> Enum.map(fn acl -> acl |> Ash.load!(:members) end)
 
+              # Keep the loaded members on the returned map: can_manage?/2 and
+              # friends read acl.members later.
+              map = %{map | acls: acls}
+
               is_blocked_any =
                 acls
                 |> Enum.any?(fn acl ->
@@ -323,7 +327,7 @@ defmodule WandererApp.Maps do
   def user_is_owner?(user, map) do
     character_ids = user.characters |> Enum.map(& &1.id)
 
-    acl_owner_ids = map.acls |> Enum.map(& &1.owner_id)
+    acl_owner_ids = map.acls |> List.wrap() |> Enum.map(& &1.owner_id)
 
     map.owner_id in character_ids or character_ids |> Enum.any?(fn id -> id in acl_owner_ids end)
   end
@@ -331,10 +335,19 @@ defmodule WandererApp.Maps do
   def user_has_roles?(user, map, roles) do
     acl_roles_eve_ids =
       map.acls
-      |> Enum.map(fn acl -> acl.members end)
-      |> List.flatten()
-      |> Enum.filter(fn member -> member.role in roles end)
-      |> Enum.map(fn member -> member.eve_character_id end)
+      |> List.wrap()
+      |> Enum.flat_map(fn acl ->
+        case acl.members do
+          members when is_list(members) ->
+            members
+            |> Enum.filter(fn member -> member.role in roles end)
+            |> Enum.map(fn member -> member.eve_character_id end)
+
+          # Members were not loaded with the map; no role can be confirmed.
+          _ ->
+            []
+        end
+      end)
 
     character_eve_ids = user.characters |> Enum.map(& &1.eve_id)
 

@@ -7,14 +7,14 @@ defmodule WandererApp.Api.Preparations.FilterMapsByRoles do
   def prepare(query, _params, %{actor: nil}) do
     query
     |> Ash.Query.filter(expr(deleted == false))
-    |> Ash.Query.load([:owner, :acls])
+    |> Ash.Query.load([:owner, acls: [:members]])
   end
 
   def prepare(query, _params, %{actor: actor}) do
     query
     |> Ash.Query.filter(expr(deleted == false))
     |> filter_membership(actor)
-    |> Ash.Query.load([:owner, :acls])
+    |> Ash.Query.load([:owner, acls: [:members]])
   end
 
   defp filter_membership(query, actor) do

@@ -33,4 +33,13 @@ defmodule WandererApp.MapsManageTest do
     refute Maps.can_manage?(map("other", [member(:member, "e1")]), user("e1"))
     refute Maps.can_manage?(map("other", []), user("e1"))
   end
+
+  test "an unloaded members relationship denies instead of raising" do
+    map = %{
+      owner_id: "other",
+      acls: [%{owner_id: "other", members: %Ash.NotLoaded{field: :members}}]
+    }
+
+    refute Maps.can_manage?(map, user("e1"))
+  end
 end

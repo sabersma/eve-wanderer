@@ -313,10 +313,12 @@ defmodule WandererApp.Maps do
       user_has_roles?(user, map, [:admin])
   end
 
-  def can_view_acls?(map, user) do
+  def can_manage?(map, user) do
     user_is_owner?(user, map) or
       user_has_roles?(user, map, [:admin, :manager])
   end
+
+  def can_view_acls?(map, user), do: can_manage?(map, user)
 
   def user_is_owner?(user, map) do
     character_ids = user.characters |> Enum.map(& &1.id)

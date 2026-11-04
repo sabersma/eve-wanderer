@@ -24,8 +24,9 @@
               {if @editing_id, do: "编辑订阅", else: "新建订阅"}
             </h5>
             <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-              订阅必须选择一张地图，系统只会评估该地图中已开启位置跟踪、且仍然拥有该地图权限的角色。
-              可以选择只监控指定的几个星系，也可以不指定星系、按虫洞等级与 Top1 军团活跃情况筛选。
+              订阅必须选择一张地图（需要该地图的 owner、admin 或 manager 权限），系统只会评估该地图中已开启位置跟踪、
+              且仍然拥有该地图权限的角色。可以选择只监控指定的几个星系，也可以不指定星系、按虫洞等级与 Top1
+              军团活跃情况筛选。
             </p>
 
             <div :if={@errors != []} class="alert alert-error mb-3 text-sm">
@@ -51,7 +52,7 @@
                   options={Enum.map(@maps, &{map_option_label(&1, @tracked_counts), &1.id})}
                 />
                 <p :if={@maps == []} class="text-xs text-warning mt-1">
-                  你没有可管理的地图，无法创建订阅。
+                  你没有任何地图的 owner、admin 或 manager 权限，无法创建订阅。
                 </p>
               </div>
 

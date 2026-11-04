@@ -27,7 +27,7 @@ defmodule WandererAppWeb.NotificationsLive do
 
     editable_maps =
       maps
-      |> Enum.filter(&Maps.can_edit?(&1, user))
+      |> Enum.filter(&Maps.can_manage?(&1, user))
       |> Enum.sort_by(& &1.name)
 
     tracked_counts = Map.new(editable_maps, &{&1.id, tracked_count(&1.id)})
@@ -373,7 +373,7 @@ defmodule WandererAppWeb.NotificationsLive do
     if Enum.any?(socket.assigns.maps, &(&1.id == map_id)) do
       :ok
     else
-      {:error, "只能为你有管理权限的地图创建订阅"}
+      {:error, "只能为你有 owner、admin 或 manager 权限的地图创建订阅"}
     end
   end
 
